@@ -22,7 +22,7 @@
 > | **Nombre del estudiante** | Adrián Moreno Méndez |
 > | **Matrícula** | 22011747 |
 > | **Asesor** | José Martín Oropeza Méndez |
-> | **Fecha del reporte** | 18 de Junio del 2026 (Actualizado a Agosto) |
+> | **Fecha del reporte** | 18 de Junio del 2026 (Actualizado a Agosto del 2026) |
 
 ---
 
