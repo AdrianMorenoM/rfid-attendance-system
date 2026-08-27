@@ -2,20 +2,27 @@
 # -*- coding: utf-8 -*-
 """RFID Dashboard Service - Puerto 5000"""
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, send_from_directory
 import sqlite3, os, traceback
 from datetime import datetime
 
-app     = Flask(__name__)
+app      = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB       = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
+
+# Carpeta de fotos del módulo CRUD
+FOTOS_DIR = os.path.join(BASE_DIR, "..", "crud", "static", "fotos")
+
+@app.route('/fotos/<path:filename>')
+def serve_foto(filename):
+    """Sirve fotos desde crud/static/fotos/"""
+    return send_from_directory(FOTOS_DIR, filename)
 
 def get_db():
     conn = sqlite3.connect(DB, timeout=30.0)
     conn.row_factory = sqlite3.Row
     return conn
 
-# Detectar esquema una sola vez
 _schema = {}
 def schema(conn):
     if _schema: return _schema
@@ -31,9 +38,19 @@ def norm(v):
     if v == 'ya_escaneado':         return 'ya_escaneado'
     return 'rebote'
 
-@app.route('/') 
+def normalizar_foto(foto):
+    """Convierte ruta de foto a /fotos/<filename> o la devuelve tal cual si es URL."""
+    if not foto:
+        return None
+    if foto.startswith('http'):
+        return foto
+    filename = foto.replace('\\', '/').rstrip('/').split('/')[-1]
+    return f'/fotos/{filename}'
+
+@app.route('/')
 @app.route('/dashboard')
-def index(): return render_template('dashboard.html')
+def index():
+    return render_template('dashboard.html')
 
 @app.route('/api/estado')
 def api_estado():
@@ -72,18 +89,27 @@ def api_estado():
                    e.nombre, e.apellido_paterno, e.matricula, e.carrera, e.foto
             FROM registros_asistencia ra
             LEFT JOIN estudiantes e ON ra.id_estudiante=e.id
-            WHERE {ff} ORDER BY ra.timestamp DESC LIMIT 30
+            WHERE {ff}
+            ORDER BY ra.timestamp DESC, ra.id DESC
+            LIMIT 30
         """, (hoy,)).fetchall()
 
         eventos = []
         for r in evs:
             r = dict(r)
             nombre = f"{r.get('nombre','')} {r.get('apellido_paterno','') or ''}".strip() or 'DESCONOCIDO'
-            eventos.append({'id':r['id'],'uid':r['uid'],'timestamp':r['timestamp'],
-                'estado':norm(r['tr']),'mensaje':r['mensaje'],'nombre':nombre,
-                'matricula':r.get('matricula') or 'N/A','carrera':r.get('carrera') or 'N/A','foto':r.get('foto')})
+            eventos.append({
+                'id':       r['id'],
+                'uid':      r['uid'],
+                'timestamp':r['timestamp'],
+                'estado':   norm(r['tr']),
+                'mensaje':  r['mensaje'],
+                'nombre':   nombre,
+                'matricula':r.get('matricula') or 'N/A',
+                'carrera':  r.get('carrera')   or 'N/A',
+                'foto':     normalizar_foto(r.get('foto')),
+            })
 
-        # Hourly accesses today (for chart)
         horas_raw = conn.execute(f"""
             SELECT CAST(strftime('%H', timestamp) AS INTEGER) as h, COUNT(*) as cnt
             FROM registros_asistencia
@@ -93,7 +119,6 @@ def api_estado():
         horas_map = {r['h']: r['cnt'] for r in horas_raw}
         hourly = [horas_map.get(h, 0) for h in range(24)]
 
-        # Reader service status
         try:
             import subprocess
             res = subprocess.run(['systemctl','is-active','rfid-reader'],
@@ -104,7 +129,7 @@ def api_estado():
 
         conn.close()
         return jsonify({
-            'success':True,'stats':stats,
+            'success':True, 'stats':stats,
             'uid_repetidos':[dict(r) for r in reps],
             'eventos':eventos,
             'hourly': hourly,
@@ -128,14 +153,23 @@ def ultimo_evento():
             WHERE {s['ff']} ORDER BY ra.timestamp DESC LIMIT 1
         """, (hoy,)).fetchone()
         conn.close()
-        if not row: return jsonify({'success':True,'evento':None})
+        if not row:
+            return jsonify({'success':True,'evento':None})
         r = dict(row)
         nombre = f"{r.get('nombre','')} {r.get('apellido_paterno','') or ''}".strip() or 'DESCONOCIDO'
-        return jsonify({'success':True,'evento':{'id':r['id'],'uid':r['uid'],'timestamp':r['timestamp'],
-            'estado':norm(r['tr']),'mensaje':r['mensaje'],'nombre':nombre,
-            'matricula':r.get('matricula') or 'N/A','carrera':r.get('carrera') or 'N/A','foto':r.get('foto')}})
+        return jsonify({'success':True,'evento':{
+            'id':       r['id'],
+            'uid':      r['uid'],
+            'timestamp':r['timestamp'],
+            'estado':   norm(r['tr']),
+            'mensaje':  r['mensaje'],
+            'nombre':   nombre,
+            'matricula':r.get('matricula') or 'N/A',
+            'carrera':  r.get('carrera')   or 'N/A',
+            'foto':     normalizar_foto(r.get('foto')),
+        }})
     except Exception as e:
         return jsonify({'success':False,'error':str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='127.0.0.1', port=5000, debug=False)
