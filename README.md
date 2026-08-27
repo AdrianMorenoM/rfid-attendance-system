@@ -546,42 +546,269 @@ Para forzar el modo hardware en la propia Pi basta con tener el módulo conectad
 <a id="5"></a>
 ## 5. Software — estructura y servicios
 
-### 5.1 Estructura de carpetas
+### 5.1 Árbol de directorios completo — propósito de cada archivo
 
 ```text
 /home/admin/rfid-system/
 ├── shared/
-│   ├── rfid.db                 # Base de datos SQLite (única fuente de verdad)
-│   ├── rfid_reader.py          # Lector RFID (servicio root)
-│   ├── init_db.py              # Script de inicialización de esquema
-│   ├── network_watchdog.sh     # Vigilancia y reconexión Wi-Fi automática
-│   ├── reader.log
-│   └── backups/                # Respaldos periódicos de rfid.db
+│   ├── rfid.db                 # Base de datos SQLite (única fuente de verdad, modo WAL)
+│   ├── rfid_reader.py          # Lector RFID: polling del RC522, debounce, modo admin,
+│   │                           #   inserción de asistencia (ver sección 4)
+│   ├── init_db.py              # Script de inicialización — crea las 3 tablas
+│   │                           #   (estudiantes, tarjetas, registros_asistencia) y
+│   │                           #   9 índices; se ejecuta una sola vez al desplegar
+│   ├── network_watchdog.sh     # Ping periódico a 8.8.8.8/1.1.1.1; si falla 3 veces
+│   │                           #   seguidas, reconecta a la red Wi-Fi conocida con
+│   │                           #   mejor señal, o reinicia NetworkManager si ninguna
+│   │                           #   red conocida está visible
+│   ├── reader.log               # Log del lector (consola + archivo, ver §4.3)
+│   ├── network_watchdog.log     # Log del watchdog de red
+│   └── backups/                 # Respaldos de rfid.db generados bajo demanda
+│                                 #   desde el panel CRUD (rfid_backup_YYYYMMDD_HHMMSS.db)
 ├── crud/
-│   ├── app_crud.py             # API REST + panel administrativo (Flask)
-│   ├── rfid_software_admin.py  # Gestión de servicios systemd y respaldos
-│   ├── static/fotos/           # Fotografías de estudiantes
+│   ├── app_crud.py             # API REST + panel administrativo (Flask). Expone
+│   │                           #   los endpoints de la sección 7: CRUD de estudiantes
+│   │                           #   y tarjetas, exportación CSV, gestión de servicios
+│   │                           #   systemd, auditoría — protegido con Basic Auth
+│   │                           #   global vía @app.before_request
+│   ├── rfid_software_admin     # Módulo de soporte de app_crud.py: administra
+│   │                           #   servicios systemd (start/stop/restart vía
+│   │                           #   subprocess/SSH) y la base de datos (respaldo,
+│   │                           #   restauración, purga filtrada por fecha/carrera/
+│   │                           #   semestre/grupo)
+│   ├── static/fotos/           # Fotografías de estudiantes subidas desde el CRUD
 │   └── templates/
+│       └── crud_dashboard.html  # Interfaz web del panel administrativo (una sola
+│                                 #   plantilla, consume los endpoints de app_crud.py)
 ├── dashboard/
-│   ├── app_dashboard.py        # Panel de métricas en tiempo real (Flask)
-│   └── templates/dashboard.html
-├── .env                        # Variables de entorno (credenciales, subred permitida)
-└── seed_test_data.py           # Generador de datos de prueba
+│   ├── app_dashboard.py        # Servidor Flask de solo lectura: calcula métricas
+│   │                           #   del día (conteos por tipo de evento, top UIDs,
+│   │                           #   distribución por hora) consultando rfid.db —
+│   │                           #   ver sección 9 del notebook
+│   └── templates/
+│       └── dashboard.html       # Vista del dashboard en tiempo real, renderizada
+│                                 #   en pantalla kiosco vía kiosk.service
+├── venv/                       # Entorno virtual Python (no versionado en git)
+├── requirements.txt            # Dependencias congeladas (pip freeze)
+├── .env                        # Variables de entorno reales — credenciales,
+│                                #   ALLOWED_SUBNET, RFID_SSH_PASSWORD (no versionado)
+└── .env.example                # Plantilla de variables de entorno sin valores
+                                 #   reales, sí versionada, para replicar el setup
 ```
 
-### 5.2 Servicios systemd
+*(fuera de `rfid-system/`, en `~/kiosk.sh`, vive el script que lanza Chromium en modo kiosco — invocado por `kiosk.service`, ver §5.2)*
 
-| Servicio | Usuario | Binding | Función | Arranque |
-|---|---|---|---|---|
-| `rfid-reader.service` | `root` | — | Lectura RFID y registro de asistencia | Automático, `Restart=always` |
-| `rfid-crud.service` | `admin` | `0.0.0.0:5001` | API REST + panel administrativo | Automático, `Restart=always` |
-| `rfid-dashboard.service` | `admin` | `127.0.0.1:5000` | Métricas y dashboard en vivo | Automático, `Restart=always` |
-| `kiosk.service` | `root` | — | Chromium en modo kiosco (pantalla física) | Automático, tras `rfid-dashboard` |
-| `network-watchdog.service` | `root` | — | Reconexión automática de Wi-Fi | Automático |
+---
 
-Los tres servicios de aplicación corren detrás de **Gunicorn** (2 workers, 2 hilos cada uno),
-lo que permite atender varias peticiones concurrentes sin bloquear el proceso principal.
+### 5.2 Servicios systemd — contenido completo y explicación de directivas
 
+**`rfid-reader.service`**
+```ini
+[Unit]
+Description=RFID Reader Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/admin/rfid-system/shared
+ExecStart=/home/admin/rfid-system/venv/bin/python3 /home/admin/rfid-system/shared/rfid_reader.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+| Directiva | Explicación |
+|---|---|
+| `After=network.target` | Espera a que la red esté disponible antes de arrancar (aunque el lector no depende de red directamente, mantiene el orden de arranque consistente con los demás servicios). |
+| `Type=simple` | El proceso principal de `ExecStart` **es** el servicio — systemd no espera ninguna señal de "listo", lo considera activo en cuanto arranca. |
+| `User=root` | Corre como `root` porque el acceso a GPIO/SPI del RC522 lo requiere en esta configuración. Es el único de los 5 servicios que corre con privilegios completos — vale la pena tenerlo presente como superficie de riesgo si el script llegara a tener una vulnerabilidad. |
+| `WorkingDirectory` | Directorio desde el que se ejecuta — relevante porque `rfid_reader.py` resuelve rutas relativas (como `rfid.db`) a partir de su propia ubicación (`os.path.dirname(__file__)`), no de este directorio, pero es buena práctica mantenerlos alineados. |
+| `ExecStart` | Usa el intérprete de Python **del entorno virtual** (`venv/bin/python3`), no el del sistema — así se usan las versiones exactas de `mfrc522`, `RPi.GPIO`, etc. fijadas en `requirements.txt`. |
+| `Restart=always` / `RestartSec=5` | Si el proceso termina (por cualquier razón, incluyendo un crash), systemd lo reinicia automáticamente a los 5 segundos — da resiliencia sin intervención manual. |
+
+**`rfid-crud.service`**
+```ini
+[Unit]
+Description=RFID CRUD Service
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/rfid-system/crud
+EnvironmentFile=/home/admin/rfid-system/.env
+Nice=5
+ExecStart=/home/admin/rfid-system/venv/bin/gunicorn -w 2 --threads 2 -b 0.0.0.0:5001 --timeout 120 app_crud:app
+Restart=always
+RestartSec=5
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+| Directiva | Explicación |
+|---|---|
+| `User=admin` | A diferencia del lector, este servicio corre con el usuario normal `admin`, no `root` — no necesita acceso a hardware, solo a la base de datos y (para las acciones de administración de servicios) a `sudo` puntual. |
+| `EnvironmentFile=/home/admin/rfid-system/.env` | Carga las variables de `.env` (credenciales, `ALLOWED_SUBNET`, `RFID_SSH_PASSWORD`) como variables de entorno del proceso — así el código las lee con `os.environ.get()` sin tenerlas escritas en el propio script. |
+| `Nice=5` | Baja ligeramente la prioridad de planificación del proceso frente a otros procesos del sistema (valor por defecto es 0; rango típico -20 a 19) — evita que el panel administrativo compita en igualdad de condiciones por CPU con el lector, que es más sensible a temporización. |
+| `ExecStart` (Gunicorn) | Ver el detalle completo en §5.4. |
+| `KillMode=process` | Al detener el servicio, systemd solo mata el proceso principal de Gunicorn, no todo el *cgroup* — evita que se lleve por delante procesos hijos relacionados con sesiones SSH abiertas por el mismo usuario, si los hubiera. |
+| `TimeoutStopSec=10` | Da hasta 10 segundos para que el proceso termine ordenadamente tras recibir la señal de parada antes de forzarlo — suficiente para que Gunicorn cierre conexiones en curso sin cortar peticiones a la mitad de forma abrupta. |
+
+**`rfid-dashboard.service`**
+```ini
+[Unit]
+Description=RFID Dashboard Service
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/rfid-system/dashboard
+Nice=5
+ExecStart=/home/admin/rfid-system/venv/bin/gunicorn -w 2 --threads 2 -b 127.0.0.1:5000 app_dashboard:app
+Restart=always
+RestartSec=5
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Misma lógica que `rfid-crud.service` en la mayoría de las directivas. Dos diferencias notables:
+- **`-b 127.0.0.1:5000`** (vs `0.0.0.0:5001` en el CRUD): el dashboard solo escucha en *localhost* — no es accesible desde otros equipos de la red, solo desde la propia Raspberry Pi (por ejemplo, el navegador en modo kiosco). Es una superficie de exposición deliberadamente menor que la del CRUD.
+- **Sin `EnvironmentFile`**: el dashboard no necesita las credenciales del `.env` porque no expone autenticación propia ni acciones administrativas, solo lectura de métricas.
+
+**`kiosk.service`**
+```ini
+[Unit]
+Description=Dashboard Kiosk
+After=rfid-dashboard.service network.target
+
+[Service]
+Type=simple
+User=root
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/xinit /home/admin/kiosk.sh -- :0 vt1 -nocursor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+| Directiva | Explicación |
+|---|---|
+| `After=rfid-dashboard.service` | Se asegura de arrancar **después** del dashboard — si Chromium abriera antes de que Flask esté escuchando, mostraría un error de conexión. |
+| `Environment=DISPLAY=:0` | Define el display X sobre el que va a dibujar — necesario porque systemd no tiene un entorno gráfico por defecto. |
+| `ExecStartPre=/bin/sleep 5` | Espera adicional de 5 segundos antes de arrancar, como margen de seguridad extra sobre el `After=` (que solo garantiza orden de arranque, no que el servidor Flask ya esté aceptando conexiones). |
+| `ExecStart` | `xinit` levanta una sesión X mínima y ejecuta `kiosk.sh` dentro de ella, en la terminal virtual `vt1`, sin cursor visible (`-nocursor`) — apropiado para una pantalla dedicada sin interacción de mouse/teclado. |
+| `User=root` | Necesario para poder inicializar la sesión X directamente desde systemd sin un login gráfico previo. |
+
+**`network-watchdog.service`**
+```ini
+[Unit]
+Description=Watchdog de conectividad Wi-Fi
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /home/admin/rfid-system/shared/network_watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+| Directiva | Explicación |
+|---|---|
+| `Wants=NetworkManager.service` | A diferencia de `After` (que solo define orden), `Wants` intenta **iniciar** `NetworkManager` si no estuviera activo — dependencia declarada explícitamente porque este script no tiene sentido sin él. |
+| `RestartSec=10` (vs 5 en los demás) | Da un poco más de margen entre reintentos, apropiado para un script que ya maneja sus propios reintentos internos (`CHECK_INTERVAL`, `FAIL_THRESHOLD`) en un loop infinito — si el propio script termina inesperadamente, no tiene sentido reiniciarlo tan agresivamente como un servidor web. |
+
+---
+
+### 5.3 Habilitar, iniciar y verificar cada servicio
+
+Tras crear o modificar cualquier archivo `.service` en `/etc/systemd/system/`, primero hay que recargar la configuración de systemd:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+**Habilitar** (arranque automático en cada boot) y **arrancar** un servicio:
+
+```bash
+sudo systemctl enable rfid-reader
+sudo systemctl start rfid-reader
+```
+
+(`enable` y `start` son independientes: `enable` sin `start` solo lo deja programado para el próximo reinicio; `start` sin `enable` lo arranca ahora pero no sobrevive a un reinicio del sistema.)
+
+**Verificar estado:**
+
+```bash
+sudo systemctl status rfid-reader
+```
+
+Muestra si está `active (running)` o `failed`, el PID, uso de memoria, y las últimas líneas de log — suficiente para un diagnóstico rápido.
+
+**Ver logs en vivo** (útil para depurar mientras se prueba algo):
+
+```bash
+sudo journalctl -u rfid-reader -f
+```
+
+`-f` sigue el log en tiempo real (como `tail -f`). Sin `-f`, muestra el historial completo disponible; se puede acotar con `-n 50` para las últimas 50 líneas, o `--since "10 min ago"`.
+
+**Reiniciar** tras un cambio de código (no de configuración systemd — para eso hace falta `daemon-reload` primero):
+
+```bash
+sudo systemctl restart rfid-crud
+```
+
+**Repetir para cada servicio** (`rfid-reader`, `rfid-crud`, `rfid-dashboard`, `kiosk`, `network-watchdog`) según cuáles estén instalados en el equipo.
+
+---
+
+### 5.4 Configuración de Gunicorn
+
+Ni `rfid-crud` ni `rfid-dashboard` usan un archivo `gunicorn.conf.py` separado — los parámetros van directo en la línea `ExecStart` de cada `.service`:
+
+```bash
+# rfid-crud
+gunicorn -w 2 --threads 2 -b 0.0.0.0:5001 --timeout 120 app_crud:app
+
+# rfid-dashboard
+gunicorn -w 2 --threads 2 -b 127.0.0.1:5000 app_dashboard:app
+```
+
+| Parámetro | Valor | Qué hace |
+|---|---|---|
+| `-w 2` (workers) | 2 procesos | Cantidad de procesos independientes de Gunicorn que atienden peticiones. Cada worker es un proceso completo (no un hilo), con su propia memoria. |
+| `--threads 2` | 2 hilos por worker | Dentro de cada worker, hasta 2 peticiones pueden atenderse de forma concurrente sin bloquear una a la otra — útil para peticiones que esperan I/O (como una consulta a SQLite) sin saturar CPU. |
+| `-b` (bind) | `0.0.0.0:5001` en CRUD, `127.0.0.1:5000` en dashboard | Dirección y puerto de escucha — ver la diferencia de exposición explicada en §5.2. |
+| `--timeout 120` | 120 segundos (solo en CRUD) | Tiempo máximo que Gunicorn espera a que un worker responda antes de considerarlo "colgado" y reiniciarlo. Un valor más alto que el default (30s) tiene sentido en el CRUD porque incluye operaciones potencialmente lentas: exportaciones CSV grandes (`stream_with_context`), respaldos de base de datos, o comandos systemd ejecutados vía subprocess/SSH que pueden tardar. El dashboard no define `--timeout` explícito porque sus consultas son agregaciones simples, más rápidas y predecibles — usa el valor por defecto de Gunicorn (30s). |
+
+**Sobre el número de workers/threads elegido:** los comentarios dejados en los propios archivos `.service` (`# Reducir workers de 4 a 2, agregar threads`) indican que este valor fue ajustado deliberadamente a la baja respecto a una configuración anterior (probablemente `-w 4` sin threads) — consistente con correr en una Raspberry Pi 4, donde 4 workers completos (cada uno con su propio intérprete de Python cargado en memoria) compiten más agresivamente por los recursos limitados del equipo que 2 workers con threads, que comparten memoria dentro de cada proceso. `Nice=5` en ambos servicios refuerza esta misma prioridad: dejar más margen de CPU disponible para el lector RFID, que es el proceso más sensible a temporización de los cinco.
+
+**Para probar Gunicorn manualmente** (fuera de systemd, útil al depurar):
+
+```bash
+cd crud
+source ../venv/bin/activate
+gunicorn -w 2 --threads 2 -b 0.0.0.0:5001 --timeout 120 app_crud:app
+```
+
+Esto corre en primer plano — `Ctrl+C` para detenerlo. Sirve para ver errores de arranque directo en la terminal, sin pasar por `journalctl`.
 
 <a id="6"></a>
 ## 6. Base de datos
