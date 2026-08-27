@@ -74,6 +74,7 @@ El sistema opera de forma **local y autónoma** dentro de la red institucional; 
 
 <a id="2"></a>
 ## 2. Arquitectura general del sistema
+[[Volver a la tabla de contenido]](#toc)
 
 La siguiente celda define el estilo visual compartido (paleta de colores, funciones de dibujo) que se reutiliza en todos los diagramas de este notebook, para mantener consistencia visual.
 
@@ -179,6 +180,7 @@ plt.show()
 
 <a id="3"></a>
 ## 3. Hardware
+[[Volver a la tabla de contenido]](#toc)
 
 | Componente | Detalle |
 |---|---|
@@ -306,6 +308,7 @@ plt.show()
 
 <a id="4"></a>
 ## 4. Firmware y lógica del lector RFID
+[[Volver a la tabla de contenido]](#toc)
 
 El script `rfid_reader.py` corre como servicio systemd (`rfid-reader.service`, usuario `root` por requerir acceso a GPIO) en un ciclo continuo de *polling* cada 150 ms, con un *debounce* de 2 segundos para evitar lecturas duplicadas de la misma tarjeta.
 
@@ -547,6 +550,7 @@ Para forzar el modo hardware en la propia Pi basta con tener el módulo conectad
 
 <a id="5"></a>
 ## 5. Software — estructura y servicios
+[[Volver a la tabla de contenido]](#toc)
 
 ### 5.1 Árbol de directorios completo — propósito de cada archivo
 
@@ -814,6 +818,7 @@ Esto corre en primer plano — `Ctrl+C` para detenerlo. Sirve para ver errores d
 
 <a id="6"></a>
 ## 6. Base de datos
+[[Volver a la tabla de contenido]](#toc)
 
 **Motor:** SQLite en modo **WAL** (*Write-Ahead Logging*), que permite lecturas concurrentes sin bloquear las escrituras — importante porque el lector escribe constantemente mientras el dashboard y el CRUD leen en paralelo.
 
@@ -1210,6 +1215,7 @@ VACUUM;  -- compacta rfid.db tras la purga masiva
 
 <a id="7"></a>
 ## 7. API REST
+[[Volver a la tabla de contenido]](#toc)
 
 Documentación completa de la API, extraída directamente de `app_crud.py`. El servicio expone más de 50 rutas, agrupadas por función. Todo corre sobre Flask + Gunicorn en el puerto **5001** (ver §5.4).
 
@@ -1741,7 +1747,7 @@ curl -s -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
 
 <a id="8"></a>
 ## 8. Flujo de datos de extremo a extremo
-
+[[Volver a la tabla de contenido]](#toc)
 
 ```python
 fig, ax = new_canvas(13, 4.6, "Flujo de datos — de la tarjeta a la pantalla")
