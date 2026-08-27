@@ -811,79 +811,400 @@ gunicorn -w 2 --threads 2 -b 0.0.0.0:5001 --timeout 120 app_crud:app
 Esto corre en primer plano — `Ctrl+C` para detenerlo. Sirve para ver errores de arranque directo en la terminal, sin pasar por `journalctl`.
 
 <a id="6"></a>
-## 6. Base de datos
+## 6. Base de datos (ampliación)
 
 **Motor:** SQLite en modo **WAL** (*Write-Ahead Logging*), que permite lecturas concurrentes sin bloquear las escrituras — importante porque el lector escribe constantemente mientras el dashboard y el CRUD leen en paralelo.
 
+Esta sección amplía el contenido original con el script SQL completo, la explicación de las relaciones entre tablas, consultas de referencia, una guía de mantenimiento y una proyección de crecimiento de la base de datos.
 
-```python
-fig, ax = new_canvas(13, 8, "Modelo entidad-relación — rfid.db")
+---
 
-def table_box(ax, xy, w, h, title, fields, fc):
-    x, y = xy
-    outer = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.05",
-                            linewidth=1.6, edgecolor='white', facecolor=fc, zorder=2)
-    ax.add_patch(outer)
-    header_h = 0.55
-    ax.add_patch(mpatches.Rectangle((x, y + h - header_h), w, header_h,
-                 facecolor='none', edgecolor='white', linewidth=1.2, zorder=3))
-    ax.text(x + w/2, y + h - header_h/2, title, ha='center', va='center',
-             fontsize=10.5, weight='bold', color='white', zorder=4)
-    field_text = "\n".join(fields)
-    ax.text(x + 0.15, y + h - header_h - 0.12, field_text, ha='left', va='top',
-             fontsize=8.2, color='white', zorder=4, linespacing=1.55, family='monospace')
-    return (x, y, w, h)
+### 6.1 Script SQL completo de creación (`init_db.py`)
 
-t1 = table_box(ax, (0.3, 4.6), 3.6, 3.2, "estudiantes", [
-    "PK id", "nombre", "apellido_paterno", "apellido_materno",
-    "matricula (UNIQUE)", "carrera", "semestre", "grupo",
-    "correo", "estado (activo/inactivo)", "foto"], COLOR['secondary'])
+El script se ejecuta **una sola vez** al desplegar el sistema (o al reconstruir la base desde cero). Usa `CREATE TABLE IF NOT EXISTS` para poder ejecutarse de forma segura más de una vez sin destruir datos existentes.
 
-t2 = table_box(ax, (5.0, 4.6), 3.4, 2.0, "tarjetas", [
-    "PK id", "uid (UNIQUE)", "FK id_estudiante",
-    "activa (0/1)", "asignada_en"], COLOR['accent'])
+```sql
+-- =========================================================
+-- init_db.py — esquema completo de rfid.db
+-- =========================================================
 
-t3 = table_box(ax, (9.2, 4.6), 3.6, 2.4, "registros_asistencia", [
-    "PK id", "FK id_estudiante", "uid",
-    "timestamp", "fecha_dia", "tipo_evento", "mensaje"], COLOR['primary'])
+-- Activa el cumplimiento de llaves foráneas en esta conexión.
+-- SQLite las ignora por defecto si no se activa explícitamente.
+PRAGMA foreign_keys = ON;
 
-t4 = table_box(ax, (5.0, 1.0), 3.4, 2.2, "audit_log", [
-    "PK id", "timestamp", "ip", "accion",
-    "detalle", "resultado"], COLOR['warning'])
+-- Modo WAL: permite lecturas concurrentes (dashboard, CRUD)
+-- mientras el lector RFID inserta registros de asistencia.
+PRAGMA journal_mode = WAL;
 
-draw_arrow(ax, (3.9, 6.2), (5.0, 5.8), "1 estudiante\n→ N tarjetas")
-draw_arrow(ax, (8.4, 5.8), (9.2, 6.2), "1 tarjeta\n→ N registros")
-draw_arrow(ax, (6.7, 4.6), (6.7, 3.2), "acciones\nadministrativas", color=COLOR['neutral'])
+-- ---------------------------------------------------------
+-- Tabla: estudiantes
+-- Fuente de verdad de la identidad de cada alumno.
+-- ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS estudiantes (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,  -- PK interno, autoincremental
+    nombre            TEXT    NOT NULL,                   -- nombre(s) de pila
+    apellido_paterno  TEXT    NOT NULL,
+    apellido_materno  TEXT,                                -- opcional
+    matricula         TEXT    NOT NULL UNIQUE,             -- clave institucional, única por definición
+    carrera           TEXT,                                -- ej. "Ing. en TIC"
+    semestre          INTEGER,                             -- 1–12, según programa
+    grupo             TEXT,                                -- ej. "A", "B", "801"
+    correo            TEXT,                                -- correo institucional o personal
+    estado            TEXT    NOT NULL DEFAULT 'activo'
+                        CHECK (estado IN ('activo', 'inactivo')),  -- baja lógica, nunca se borra el registro
+    foto              TEXT,                                -- ruta relativa dentro de crud/static/fotos/
+    creado_en         TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 
-ax.text(6.5, 0.5, "Relaciones con ON DELETE SET NULL — un registro histórico\n"
-                    "sobrevive aunque se elimine el estudiante o la tarjeta.",
-         ha='center', fontsize=9, style='italic', color=COLOR['neutral'])
+-- ---------------------------------------------------------
+-- Tabla: tarjetas
+-- Vincula un UID físico (RFID) con un estudiante.
+-- Relación 1 estudiante → N tarjetas (permite reposición
+-- de tarjeta perdida sin perder historial).
+-- ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tarjetas (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid             TEXT    NOT NULL UNIQUE,               -- UID leído por el RC522 (decimal, como string)
+    id_estudiante   INTEGER,                                -- FK → estudiantes.id (nullable)
+    activa          INTEGER NOT NULL DEFAULT 1
+                        CHECK (activa IN (0, 1)),           -- 1 = habilitada, 0 = revocada (extravío, baja)
+    asignada_en     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (id_estudiante) REFERENCES estudiantes(id)
+        ON DELETE SET NULL                                  -- si se borra el estudiante, la tarjeta no se pierde
+);
 
-plt.tight_layout()
-plt.show()
+-- ---------------------------------------------------------
+-- Tabla: registros_asistencia
+-- Tabla de mayor crecimiento: un renglón por cada evento
+-- de lectura (aceptado / rebote / ya_escaneado).
+-- ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS registros_asistencia (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_estudiante   INTEGER,                                -- FK → estudiantes.id (nullable)
+    uid             TEXT    NOT NULL,                        -- se conserva aunque la tarjeta se elimine
+    timestamp       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),  -- fecha y hora exactas
+    fecha_dia       TEXT    NOT NULL,                        -- 'YYYY-MM-DD', derivado del timestamp
+    tipo_evento     TEXT    NOT NULL
+                        CHECK (tipo_evento IN ('aceptado', 'rebote', 'ya_escaneado')),
+    mensaje         TEXT,                                    -- motivo legible (ej. "UID no registrado")
+    FOREIGN KEY (id_estudiante) REFERENCES estudiantes(id)
+        ON DELETE SET NULL                                   -- el historial de asistencia nunca se borra
+);
+
+-- ---------------------------------------------------------
+-- Tabla: audit_log
+-- Bitácora de acciones administrativas sensibles.
+-- Sin FK hacia otras tablas: es un registro independiente
+-- de "quién hizo qué" en el panel CRUD.
+-- ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    ip          TEXT,                                        -- IP de origen de la petición
+    accion      TEXT    NOT NULL,                             -- ej. "restart_service", "delete_estudiante"
+    detalle     TEXT,                                         -- parámetros/contexto de la acción
+    resultado   TEXT    NOT NULL
+                        CHECK (resultado IN ('exito', 'fallo'))
+);
+
+-- ---------------------------------------------------------
+-- Índices (9 en total) — ver §6.2 para el detalle de cada uno
+-- ---------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_tarjetas_uid              ON tarjetas(uid);
+CREATE INDEX IF NOT EXISTS idx_tarjetas_id_estudiante     ON tarjetas(id_estudiante);
+CREATE INDEX IF NOT EXISTS idx_estudiantes_matricula      ON estudiantes(matricula);
+CREATE INDEX IF NOT EXISTS idx_estudiantes_estado         ON estudiantes(estado);
+CREATE INDEX IF NOT EXISTS idx_estudiantes_semestre       ON estudiantes(semestre);
+CREATE INDEX IF NOT EXISTS idx_registros_fecha_dia        ON registros_asistencia(fecha_dia);
+CREATE INDEX IF NOT EXISTS idx_registros_tipo_evento      ON registros_asistencia(tipo_evento);
+CREATE INDEX IF NOT EXISTS idx_registros_fecha_evento     ON registros_asistencia(fecha_dia, tipo_evento);
+CREATE INDEX IF NOT EXISTS idx_registros_estudiante_evento ON registros_asistencia(id_estudiante, tipo_evento);
 ```
 
+---
 
-    
-![png](README_files/README_19_0.png)
-    
+### 6.2 Explicación de índices
 
+| Índice | Columnas | Consulta que acelera |
+|---|---|---|
+| `idx_tarjetas_uid` | `uid` | Búsqueda del lector al validar cada lectura (`SELECT ... WHERE uid = ?`) — es la consulta más frecuente del sistema, ejecutada en cada `POLL_S`. |
+| `idx_tarjetas_id_estudiante` | `id_estudiante` | Listar las tarjetas de un estudiante en el panel CRUD. |
+| `idx_estudiantes_matricula` | `matricula` | Búsqueda/validación de unicidad al dar de alta o editar un estudiante. |
+| `idx_estudiantes_estado` | `estado` | Filtrar estudiantes activos/inactivos en listados y exportaciones. |
+| `idx_estudiantes_semestre` | `semestre` | Reportes filtrados por semestre. |
+| `idx_registros_fecha_dia` | `fecha_dia` | Consultas del dashboard limitadas "al día en curso" y exportación de asistencia por rango de fechas. |
+| `idx_registros_tipo_evento` | `tipo_evento` | Conteo de eventos por tipo (aceptado/rebote/ya_escaneado) en el dashboard. |
+| `idx_registros_fecha_evento` | `(fecha_dia, tipo_evento)` | Índice compuesto: la consulta más pesada del dashboard (conteo por tipo, filtrado por día) resuelve en un solo acceso al índice sin *table scan*. |
+| `idx_registros_estudiante_evento` | `(id_estudiante, tipo_evento)` | "¿Ya se registró `aceptado` hoy para este estudiante?" — se ejecuta en cada lectura válida del RC522, es la ruta crítica de latencia del lector. |
 
+> Sin estos índices, cada lectura de tarjeta obligaría a un recorrido secuencial de `registros_asistencia`, que crece indefinidamente (ver §6.6) — el costo de la consulta pasaría de O(log n) a O(n) conforme avanza el semestre.
 
-### 6.1 Índices y rendimiento
+---
 
-Se definieron **9 índices** sobre las columnas más consultadas (fecha, UID, tipo de evento,
-estado, semestre, y combinaciones fecha+evento / estudiante+evento), pensados para las
-consultas frecuentes del dashboard y las exportaciones — evitan *table scans* completos
-conforme la tabla `registros_asistencia` crece con el uso diario.
+### 6.3 Relaciones entre tablas
 
-### 6.2 Respaldos
-Los respaldos se generan bajo demanda (`DatabaseManager.create_backup`) con nombre
-`rfid_backup_YYYYMMDD_HHMMSS.db`, validado contra una expresión regular estricta antes de
-cualquier operación de restauración — evita *path traversal* al construir la ruta del archivo.
-No existe replicación en tiempo real: el respaldo es la única defensa ante corrupción del
-archivo principal (ver [sección 13](#13)).
+```
+estudiantes (1) ──────< (N) tarjetas
+     │                        │
+     │                        │
+     └────────< (N) registros_asistencia
+                              
+audit_log  (independiente, sin FK)
+```
 
+**`tarjetas.id_estudiante → estudiantes.id` (`ON DELETE SET NULL`)**
+Un estudiante puede tener varias tarjetas a lo largo del tiempo (reposición por extravío), pero cada tarjeta pertenece a un solo estudiante. Si el estudiante se elimina físicamente de la tabla `estudiantes` (no solo se marca `inactivo`), la tarjeta **no se borra**: su columna `id_estudiante` pasa a `NULL`, quedando como una tarjeta huérfana identificable, en vez de desaparecer silenciosamente.
+
+**`registros_asistencia.id_estudiante → estudiantes.id` (`ON DELETE SET NULL`)**
+Mismo criterio, aplicado al historial de asistencia: es la relación más importante de proteger, porque `registros_asistencia` es evidencia histórica (útil para auditorías, reportes de servicio social, litigios administrativos, etc.). Borrar en cascada destruiría evidencia; `SET NULL` conserva el renglón (con su `uid`, `timestamp` y `tipo_evento` intactos) aunque pierda la referencia directa al estudiante.
+
+**¿Por qué no se usa `ON DELETE CASCADE` en este esquema?**
+`ON DELETE CASCADE` habría sido la alternativa natural si el objetivo fuera mantener la base de datos "limpia" borrando automáticamente todo lo relacionado con un estudiante eliminado (sus tarjetas y todo su historial de asistencia desaparecerían junto con él). Se descartó deliberadamente por dos razones:
+
+1. **Valor probatorio del historial.** `registros_asistencia` documenta hechos ocurridos (una tarjeta pasó por el lector en tal fecha/hora) — es un log, no un dato editable, y borrarlo en cascada eliminaría evidencia que podría necesitarse después de que un estudiante cause baja.
+2. **Recuperación ante errores administrativos.** Si un estudiante se elimina por error, con `SET NULL` sus registros de asistencia siguen existiendo (identificables por `uid`) y pueden reconciliarse manualmente; con `CASCADE` esa información se perdería de forma irreversible en el mismo instante del `DELETE`.
+
+En términos prácticos, este sistema prefiere **bajas lógicas** (`estudiantes.estado = 'inactivo'`) sobre `DELETE` físico — la columna `estado` existe justamente para eso. El `DELETE` físico de un estudiante es una operación excepcional (ej. registro duplicado por error de captura), y para ese caso excepcional `SET NULL` es la opción segura. `CASCADE` sería apropiado en un esquema distinto donde los datos hijos no tuvieran valor una vez eliminado el padre — por ejemplo, si `tarjetas` tuviera una tabla de "notas internas" sin relevancia fuera del contexto de esa tarjeta específica, ahí sí tendría sentido borrarlas en cascada junto con la tarjeta.
+
+---
+
+### 6.4 Consultas SQL de referencia
+
+**a) Insertar un registro de asistencia** (la operación que ejecuta `rfid_reader.py` en cada evento — ver §4.1):
+
+```sql
+INSERT INTO registros_asistencia (id_estudiante, uid, timestamp, fecha_dia, tipo_evento, mensaje)
+VALUES (?, ?, datetime('now', 'localtime'), date('now', 'localtime'), ?, ?);
+```
+*(los `?` son parámetros preparados — nunca se concatenan strings del usuario, ver §12.2)*
+
+**b) Consultar el último evento registrado de un estudiante** (útil en el panel CRUD, ficha del estudiante):
+
+```sql
+SELECT r.timestamp, r.tipo_evento, r.mensaje, r.uid
+FROM registros_asistencia r
+WHERE r.id_estudiante = ?
+ORDER BY r.timestamp DESC
+LIMIT 1;
+```
+
+**c) Verificar si un estudiante ya tiene un `aceptado` el día de hoy** (usada por `procesar()` del lector, ver §4.1 y el índice `idx_registros_estudiante_evento`):
+
+```sql
+SELECT COUNT(*) AS ya_registrado
+FROM registros_asistencia
+WHERE id_estudiante = ?
+  AND tipo_evento = 'aceptado'
+  AND fecha_dia = date('now', 'localtime');
+```
+
+**d) Estadísticas diarias del dashboard — conteo por tipo de evento (día en curso):**
+
+```sql
+SELECT tipo_evento, COUNT(*) AS total
+FROM registros_asistencia
+WHERE fecha_dia = date('now', 'localtime')
+GROUP BY tipo_evento;
+```
+
+**e) Estadísticas diarias — distribución de escaneos por hora** (la consulta detrás de la gráfica de §9):
+
+```sql
+SELECT strftime('%H', timestamp) AS hora, COUNT(*) AS escaneos
+FROM registros_asistencia
+WHERE fecha_dia = date('now', 'localtime')
+GROUP BY hora
+ORDER BY hora;
+```
+
+**f) Top 10 UIDs con más escaneos repetidos en el día** (detección de estudiantes que insisten en pasar la tarjeta ya escaneada):
+
+```sql
+SELECT uid, COUNT(*) AS repeticiones
+FROM registros_asistencia
+WHERE fecha_dia = date('now', 'localtime')
+  AND tipo_evento = 'ya_escaneado'
+GROUP BY uid
+ORDER BY repeticiones DESC
+LIMIT 10;
+```
+
+**g) Exportar asistencia a CSV, filtrada por rango de fechas** (base de `/api/export/registros`, con `stream_with_context` para no cargar todo en memoria):
+
+```sql
+SELECT e.matricula, e.nombre, e.apellido_paterno, e.apellido_materno,
+       r.timestamp, r.tipo_evento, r.mensaje
+FROM registros_asistencia r
+LEFT JOIN estudiantes e ON e.id = r.id_estudiante
+WHERE r.fecha_dia BETWEEN ? AND ?
+ORDER BY r.timestamp ASC;
+```
+*(`LEFT JOIN`, no `INNER JOIN`: así se incluyen registros cuyo estudiante fue eliminado — `id_estudiante` en `NULL` — y no desaparecen silenciosamente de la exportación.)*
+
+**h) Exportar el padrón completo de estudiantes a CSV** (base de `/api/export/estudiantes`):
+
+```sql
+SELECT matricula, nombre, apellido_paterno, apellido_materno,
+       carrera, semestre, grupo, correo, estado
+FROM estudiantes
+ORDER BY apellido_paterno, apellido_materno, nombre;
+```
+
+---
+
+### 6.5 Guía de mantenimiento
+
+**a) Backup manual**
+
+Desde el panel CRUD (`/api/software/database/status` para ver el estado, y el botón de respaldo, que internamente llama a `DatabaseManager.create_backup`), o directamente por línea de comandos en la Raspberry Pi:
+
+```bash
+cd /home/admin/rfid-system/shared
+
+# En modo WAL, SQLite mantiene cambios recientes en rfid.db-wal;
+# un simple `cp` puede copiar un estado inconsistente si hay escrituras
+# en curso. La forma segura es usar el propio comando de respaldo de SQLite:
+sqlite3 rfid.db ".backup 'backups/rfid_backup_$(date +%Y%m%d_%H%M%S).db'"
+```
+
+El comando `.backup` de la CLI de `sqlite3` (o su equivalente, la API `sqlite3_backup_*` en Python) es *WAL-aware*: hace un checkpoint interno y copia un snapshot consistente, a diferencia de copiar el archivo `.db` con `cp` mientras el proceso lector sigue escribiendo.
+
+El nombre resultante (`rfid_backup_YYYYMMDD_HHMMSS.db`) es el mismo formato validado por expresión regular estricta antes de cualquier restauración (ver §6.2 del documento original) — no renombrar manualmente los archivos de respaldo si se planea restaurarlos después desde el panel CRUD.
+
+**b) Restaurar desde un backup**
+
+⚠️ Esta operación **sobrescribe** la base de datos en producción — debe hacerse con los servicios detenidos.
+
+```bash
+# 1. Detener los servicios que escriben o leen la base de datos
+sudo systemctl stop rfid-reader rfid-crud rfid-dashboard
+
+# 2. Respaldar el estado actual antes de sobrescribir, por seguridad
+cp shared/rfid.db shared/rfid.db.antes_de_restaurar
+
+# 3. Restaurar el archivo elegido
+cp shared/backups/rfid_backup_20260815_070000.db shared/rfid.db
+
+# 4. Eliminar archivos WAL/SHM obsoletos del estado anterior, si existen,
+#    para evitar que SQLite intente reconciliar un WAL que no corresponde
+#    al nuevo archivo principal
+rm -f shared/rfid.db-wal shared/rfid.db-shm
+
+# 5. Reiniciar los servicios
+sudo systemctl start rfid-reader rfid-crud rfid-dashboard
+```
+
+Si el panel CRUD expone la restauración vía `/api/software/database/*`, el mismo procedimiento ocurre internamente (validación del nombre de archivo, checkpoint, sustitución), pero conviene conocer la versión manual para escenarios donde el propio CRUD no esté disponible.
+
+**c) Ejecutar migraciones de esquema (`/api/migrate`)**
+
+El endpoint aplica migraciones incrementales (por ejemplo, así se añadió `audit_log` o la columna `grupo` sin reescribir `init_db.py` desde cero). Está protegido detrás de la variable de entorno `ALLOW_HTTP_MIGRATIONS`, que debe permanecer en `false`/ausente en operación normal:
+
+```bash
+# 1. Habilitar temporalmente el feature flag en .env
+echo "ALLOW_HTTP_MIGRATIONS=true" >> /home/admin/rfid-system/.env
+sudo systemctl restart rfid-crud
+
+# 2. Respaldar la base ANTES de migrar (paso obligatorio, no opcional)
+sqlite3 shared/rfid.db ".backup 'shared/backups/pre_migracion_$(date +%Y%m%d_%H%M%S).db'"
+
+# 3. Disparar la migración (requiere las credenciales de Basic Auth)
+curl -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
+
+# 4. Verificar el resultado en audit_log y en el estado de la BD
+curl -u admin:CONTRASEÑA http://127.0.0.1:5001/api/software/database/status
+
+# 5. Deshabilitar el feature flag de inmediato — no dejarlo activo en producción
+sed -i '/ALLOW_HTTP_MIGRATIONS/d' /home/admin/rfid-system/.env
+sudo systemctl restart rfid-crud
+```
+
+**d) Compactar la base de datos (`VACUUM`)**
+
+`DELETE` en SQLite no reduce el tamaño físico del archivo: las páginas liberadas quedan disponibles para reutilización interna pero el archivo no encoge. `VACUUM` reconstruye el archivo completo, eliminando el espacio libre interno:
+
+```bash
+cd /home/admin/rfid-system/shared
+
+# Detener el lector (o al menos evitar escrituras) es recomendable,
+# aunque VACUUM puede ejecutarse con el sistema en modo WAL activo.
+# Es una operación que reescribe TODO el archivo: en una microSD,
+# puede tardar varios segundos y generar carga de I/O notable.
+sqlite3 rfid.db "VACUUM;"
+```
+
+**Cuándo ejecutarlo:** no es necesario de forma rutinaria si solo se insertan registros (no hay `DELETE` masivo que generar páginas libres). Se vuelve relevante después de una purga de datos antiguos (ver §6.6) o tras eliminar en bloque estudiantes/tarjetas dados de baja hace tiempo.
+
+**Alternativa incremental:** si se prevén purgas periódicas (ver estrategia de archivado en §6.6), activar `PRAGMA auto_vacuum = INCREMENTAL;` **antes** de crear las tablas (no se puede cambiar en una base ya poblada sin un `VACUUM` completo primero) y ejecutar `PRAGMA incremental_vacuum;` tras cada purga — compacta en pasos pequeños en vez de reescribir el archivo completo de una sola vez, lo que es más amigable con una microSD.
+
+---
+
+### 6.6 Estrategia de crecimiento y archivado
+
+**Estimación de tamaño con uso diario**
+
+La tabla `registros_asistencia` es, por diseño, la única que crece sin límite natural (no hay purga automática). Con una población típica de una institución de este tamaño:
+
+| Parámetro | Valor estimado |
+|---|---|
+| Estudiantes activos | ~300–500 |
+| Escaneos por estudiante/día (incluye reintentos y `ya_escaneado`) | ~2–4 |
+| Registros nuevos por día hábil | ~900–1,800 |
+| Tamaño promedio por renglón (con overhead de índices) | ~120–180 bytes |
+| Crecimiento diario aproximado | ~150–300 KB/día |
+| Días hábiles por semestre (~18 semanas) | ~90 |
+| Crecimiento por semestre | ~13–27 MB |
+| Crecimiento anual (2 semestres + verano) | ~30–60 MB/año |
+
+Las tablas `estudiantes` y `tarjetas` son comparativamente insignificantes en tamaño (cientos de renglones, no miles por día) y no representan un problema de crecimiento — el foco de esta sección es `registros_asistencia`.
+
+```python
+# Estimación reproducible (no requiere hardware ni datos reales)
+estudiantes = 400
+escaneos_por_dia = 3
+bytes_por_registro = 150   # dato + overhead de 4 índices que lo referencian
+dias_habiles_semestre = 90
+
+registros_semestre = estudiantes * escaneos_por_dia * dias_habiles_semestre
+mb_semestre = (registros_semestre * bytes_por_registro) / (1024 ** 2)
+
+print(f"Registros por semestre: {registros_semestre:,}")
+print(f"Crecimiento estimado: {mb_semestre:.1f} MB por semestre")
+```
+
+Incluso en un escenario de varios años de operación continua sin purgar nada, el archivo `rfid.db` se mantendría en el orden de unos pocos cientos de MB — muy por debajo de cualquier límite práctico de SQLite (que soporta bases de varios TB) o de espacio en una microSD moderna (16 GB o superior, ver §3.2). El riesgo real no es el espacio en disco, sino la **degradación de rendimiento** en consultas que no usan bien los índices conforme la tabla crece a cientos de miles de renglones a lo largo de varios años.
+
+**Recomendaciones de archivado**
+
+| Estrategia | Cuándo aplica | Notas |
+|---|---|---|
+| **No archivar (dejar crecer)** | Mientras el archivo se mantenga por debajo de ~500 MB–1 GB y las consultas del dashboard sigan respondiendo en milisegundos (gracias a los índices de §6.2) | Es la situación actual; no requiere acción mientras no se note degradación |
+| **Archivado anual a base "fría"** | Al cierre de cada ciclo escolar (o año calendario) | Copiar los registros de `registros_asistencia` con `fecha_dia` fuera del ciclo actual a una base separada (`rfid_historico_2025.db`) mediante `ATTACH DATABASE`, y purgar esos renglones de `rfid.db` con `DELETE ... WHERE fecha_dia < ?` seguido de `VACUUM` |
+| **Exportación + purga** | Alternativa más simple si no se necesita consultar el histórico por SQL después | Exportar a CSV con el endpoint `/api/export/registros` (filtrado por rango de fechas) antes de purgar, y conservar el CSV como respaldo frío (ej. en el mismo `shared/backups/` o fuera del equipo) |
+
+Ejemplo de archivado con `ATTACH DATABASE` (mover registros de un ciclo cerrado a una base separada, preservando la posibilidad de consultarlos por SQL si hiciera falta):
+
+```sql
+ATTACH DATABASE 'shared/backups/rfid_historico_2025.db' AS historico;
+
+-- Crear la tabla destino con la misma estructura, si no existe aún
+CREATE TABLE IF NOT EXISTS historico.registros_asistencia AS
+SELECT * FROM registros_asistencia WHERE 0;  -- copia solo la estructura
+
+-- Mover los registros del ciclo cerrado
+INSERT INTO historico.registros_asistencia
+SELECT * FROM registros_asistencia
+WHERE fecha_dia < '2026-01-01';
+
+DELETE FROM registros_asistencia
+WHERE fecha_dia < '2026-01-01';
+
+DETACH DATABASE historico;
+
+VACUUM;  -- compacta rfid.db tras la purga masiva
+```
+
+> **Importante:** cualquier operación de archivado o purga masiva debe ir precedida de un backup completo (§6.5-a) y, si el sistema está en producción activa, ejecutarse con los servicios detenidos o en una ventana de bajo uso (ej. fin de semana), dado que `DELETE` + `VACUUM` sobre decenas de miles de renglones bloquea escrituras del lector mientras se ejecuta.
 
 <a id="7"></a>
 ## 7. API REST
