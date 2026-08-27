@@ -541,11 +541,7 @@ Esto ejecuta exactamente la misma lógica que correría el lector real ante una 
 **Cambiar entre modo real y espera pasiva** no requiere ninguna bandera: es automático según si `mfrc522`/`RPi.GPIO` están instalados en el entorno.
 Para forzar el modo hardware en la propia Pi basta con tener el módulo conectado y las dependencias instaladas (incluidas en `requirements.txt`).
 
-> **Nota para trabajo futuro:** si se necesita probar el flujo completo
-> (loop, debounce, colores en consola) sin tarjeta física, una mejora
-> razonable sería agregar un modo `--simulate` que acepte UIDs por teclado
-> en vez de leer el RC522 — actualmente esa opción **no existe** en el
-> código; el modo sin hardware únicamente mantiene el proceso vivo.
+> **Nota para trabajo futuro:** si se necesita probar el flujo completo (loop, debounce, colores en consola) sin tarjeta física, una mejora razonable sería agregar un modo `--simulate` que acepte UIDs por teclado en vez de leer el RC522 — actualmente esa opción **no existe** en el código; el modo sin hardware únicamente mantiene el proceso vivo.
 
 <a id="5"></a>
 ## 5. Software — estructura y servicios
