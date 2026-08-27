@@ -815,7 +815,7 @@ Esto corre en primer plano — `Ctrl+C` para detenerlo. Sirve para ver errores d
 
 **Motor:** SQLite en modo **WAL** (*Write-Ahead Logging*), que permite lecturas concurrentes sin bloquear las escrituras — importante porque el lector escribe constantemente mientras el dashboard y el CRUD leen en paralelo.
 
-Esta sección amplía el contenido original con el script SQL completo, la explicación de las relaciones entre tablas, consultas de referencia, una guía de mantenimiento y una proyección de crecimiento de la base de datos.
+Esta sección incluye el script SQL completo, la explicación de las relaciones entre tablas, consultas de referencia, una guía de mantenimiento y una proyección de crecimiento de la base de datos.
 
 ---
 
