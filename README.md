@@ -30,6 +30,7 @@
 
 Este notebook documenta de forma técnica y visual el **Sistema de Control de Asistencia por RFID** desarrollado como parte del Servicio Social en el ITSOEH. Cubre arquitectura, hardware, software, base de datos, seguridad y dependencias del sistema, con diagramas generados en Python para que el reporte sea reproducible, versionable en Git y visualmente claro tanto en Jupyter como en GitHub.
 
+<a id="toc"></a>
 ## Tabla de contenido
 
 1. [Introducción y objetivos](#1)
@@ -50,7 +51,7 @@ Este notebook documenta de forma técnica y visual el **Sistema de Control de As
 16. [Referencias y anexos](#16)
 
 <a id="1"></a>
-## 1. Introducción y objetivos
+## 1. Introducción y objetivos [⬆ Volver a la tabla de contenido](#toc)
 
 ### 1.1 Contexto
 El control de asistencia manual en instituciones educativas es propenso a errores, suplantación y pérdida de tiempo administrativo. Como parte del Servicio Social, se desarrolló e implementó un **sistema de control de asistencia automatizado basado en tecnología RFID (13.56 MHz, HF)**, que permite registrar la entrada de estudiantes mediante una tarjeta física, almacenar la información en una base de datos local, y visualizarla en tiempo real a través de un panel administrativo y una pantalla en modo kiosco.
