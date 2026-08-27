@@ -1745,6 +1745,40 @@ curl -s -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
 
 > **Nota:** esta documentación se generó leyendo directamente `app_crud.py`. Si el archivo cambia — nuevos endpoints, nuevos parámetros, cambios en las respuestas — esta sección debe regenerarse contra el código actualizado para no quedar desincronizada.
 
+## 8. Flujo de datos de extremo a extremo
+[[Volver a la tabla de contenido]](#toc)
+
+```python
+fig, ax = new_canvas(13, 4.6, "Flujo de datos — de la tarjeta a la pantalla")
+
+steps = [
+    ("Tarjeta\nacercada", COLOR['neutral']),
+    ("Lector RC522\nlee UID", COLOR['primary']),
+    ("INSERT en\nrfid.db (WAL)", COLOR['accent']),
+    ("Dashboard consulta\ncada refresco", COLOR['secondary']),
+    ("Se renderiza en\npantalla kiosco", COLOR['neutral']),
+]
+
+x = 0.4
+w, h, gap = 2.1, 1.6, 0.55
+y = 2.1
+positions = []
+for label, c in steps:
+    p = draw_box(ax, (x, y), w, h, label, fc=c, fs=9.5)
+    positions.append((x, x + w))
+    x += w + gap
+
+for i in range(len(positions) - 1):
+    draw_arrow(ax, (positions[i][1], y + h/2), (positions[i+1][0], y + h/2))
+
+ax.text(6.5, 0.55,
+        "En paralelo: el panel CRUD (puerto 5001) permite exportar CSV bajo demanda\n" "y administrar estudiantes/tarjetas, sin interferir con el flujo de registro.", ha='center', fontsize=9.5, style='italic', color=COLOR['neutral'])
+
+plt.tight_layout()
+plt.show()
+```
+![png](README_files/README_23_0.png)
+
 ### 8.1 Diagrama de secuencia
 
 El siguiente diagrama detalla, paso a paso, lo que ocurre entre que se acerca la tarjeta y el momento en que el evento aparece en pantalla, incluyendo las consultas SQL específicas y tiempos aproximados de cada etapa.
