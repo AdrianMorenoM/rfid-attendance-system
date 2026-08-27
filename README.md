@@ -381,9 +381,7 @@ except ImportError:
     RFID_OK = False
 ```
 
-Si las librerías `mfrc522`/`RPi.GPIO` no están disponibles en el entorno (por
-ejemplo, ejecutando el script fuera de la Raspberry Pi), `RFID_OK` queda en
-`False`. Esto determina qué rama del `main()` se ejecuta — ver §4.4.
+Si las librerías `mfrc522`/`RPi.GPIO` no están disponibles en el entorno (por ejemplo, ejecutando el script fuera de la Raspberry Pi), `RFID_OK` queda en `False`. Esto determina qué rama del `main()` se ejecuta — ver §4.4.
 
 **Detección de tarjeta y lectura de UID (`leer_uid`)**
 
@@ -415,9 +413,7 @@ if uid_s == ultimo_uid and (ahora - ultimo_t) < DEBOUNCE_S:
     continue
 ```
 
-Si la misma tarjeta se lee de nuevo dentro de `DEBOUNCE_S` (2 s) desde su
-última lectura, se ignora — evita que una sola pasada de tarjeta genere
-múltiples registros mientras el usuario la retira del lector.
+Si la misma tarjeta se lee de nuevo dentro de `DEBOUNCE_S` (2 s) desde su última lectura, se ignora — evita que una sola pasada de tarjeta genere múltiples registros mientras el usuario la retira del lector.
 
 **Modo administrador**
 
@@ -429,29 +425,19 @@ if _modo_admin_activo():
     continue
 ```
 
-`_modo_admin_activo()` revisa si existe el archivo de señal
-`/run/rfid-shared/rfid_admin_mode`, creado por el panel CRUD cuando un
-administrador va a dar de alta una tarjeta nueva. Mientras ese archivo
-existe, el lector **no** registra asistencia: solo captura el UID y lo
-escribe (con bloqueo exclusivo `fcntl.flock`) en
-`/run/rfid-shared/rfid_admin_uid`, para que el CRUD lo lea y lo asocie al
-estudiante en alta. Así se comunican dos procesos independientes (`root` y
-`admin`) sin tocar la base de datos directamente.
+`_modo_admin_activo()` revisa si existe el archivo de señal `/run/rfid-shared/rfid_admin_mode`, creado por el panel CRUD cuando un administrador va a dar de alta una tarjeta nueva. Mientras ese archivo existe, el lector **no** registra asistencia: solo captura el UID y lo escribe (con bloqueo exclusivo `fcntl.flock`) en
+`/run/rfid-shared/rfid_admin_uid`, para que el CRUD lo lea y lo asocie al estudiante en alta. Así se comunican dos procesos independientes (`root` y `admin`) sin tocar la base de datos directamente.
 
 **Inserción en base de datos (`procesar`)**
 
-Fuera de modo admin, cada UID pasa por `procesar()`, que resuelve uno de
-cuatro escenarios (ver el diagrama de decisión más arriba en esta sección) y
-siempre inserta un registro en `registros_asistencia`:
+Fuera de modo admin, cada UID pasa por `procesar()`, que resuelve uno de cuatro escenarios (ver el diagrama de decisión más arriba en esta sección) y siempre inserta un registro en `registros_asistencia`:
 
 1. UID no encontrado en `tarjetas` → `rebote`, `"UID no registrado"`.
 2. Tarjeta inactiva o estudiante inactivo → `rebote`, motivo correspondiente.
-3. Ya existe un `aceptado` ese mismo día para ese UID → `ya_escaneado`, con
-   contador de reincidencia.
+3. Ya existe un `aceptado` ese mismo día para ese UID → `ya_escaneado`, con contador de reincidencia.
 4. Primer escaneo válido del día → `aceptado`.
 
-Todas las inserciones usan parámetros preparados (`?`), sin concatenación
-de strings — evita inyección SQL.
+Todas las inserciones usan parámetros preparados (`?`), sin concatenación de strings — evita inyección SQL.
 
 **Reinicio automático del chip**
 
@@ -461,36 +447,17 @@ if time.time() - ultima_lectura_ok > REINIT_TIMEOUT:
     reader.MFRC522_Init()
 ```
 
-Si pasan más de `REINIT_TIMEOUT` (8 s) sin que el propio hardware responda
-(no se refiere a la ausencia de tarjetas, sino a fallos de comunicación con
-el chip), se reinicializa el RC522 — compensa fallos intermitentes de SPI,
-comunes en módulos económicos.
+Si pasan más de `REINIT_TIMEOUT` (8 s) sin que el propio hardware responda (no se refiere a la ausencia de tarjetas, sino a fallos de comunicación con el chip), se reinicializa el RC522 — compensa fallos intermitentes de SPI, comunes en módulos económicos.
 
 ---
 
 ### 4.2 Protocolo MIFARE — por qué no se usa autenticación de sector
 
-Las tarjetas MIFARE Classic organizan su memoria en **sectores protegidos**
-por llaves criptográficas (Key A / Key B). Leer o escribir *datos* dentro de
-esos sectores requiere autenticación (`MFRC522_Auth`).
+Las tarjetas MIFARE Classic organizan su memoria en **sectores protegidos** por llaves criptográficas (Key A / Key B). Leer o escribir *datos* dentro de esos sectores requiere autenticación (`MFRC522_Auth`).
 
-Este sistema **no lee ni escribe datos dentro de la tarjeta** — únicamente
-necesita el **UID de fábrica**, que se obtiene con el procedimiento de
-*Request* + *Anticollision* durante la fase de **selección** de la tarjeta,
-la cual ocurre **antes** de cualquier autenticación de sector en el
-protocolo ISO14443A. El flujo se detiene justo ahí porque no hay necesidad
-de autenticar si nunca se va a acceder a un bloque de datos.
+Este sistema **no lee ni escribe datos dentro de la tarjeta** — únicamente necesita el **UID de fábrica**, que se obtiene con el procedimiento de *Request* + *Anticollision* durante la fase de **selección** de la tarjeta, la cual ocurre **antes** de cualquier autenticación de sector en el protocolo ISO14443A. El flujo se detiene justo ahí porque no hay necesidad de autenticar si nunca se va a acceder a un bloque de datos.
 
-**Implicación de seguridad:** en tarjetas MIFARE Classic estándar el UID es
-de solo lectura, pero existen tarjetas regrabables ("*magic cards*")
-diseñadas para clonar UIDs arbitrarios. Es decir, el sistema no verifica una
-identidad criptográficamente firmada, sino un número de serie — la
-seguridad del control de acceso descansa en que la lista de UIDs válidos en
-`rfid.db` esté bien controlada administrativamente, **no** en una propiedad
-criptográfica de la tarjeta. Es un nivel de seguridad razonable para control
-de asistencia (bajo riesgo), pero insuficiente si en el futuro el sistema
-protegiera activos críticos — en ese caso, la vía sería migrar a MIFARE
-DESFire (autenticación AES) u otro esquema con autenticación mutua.
+**Implicación de seguridad:** en tarjetas MIFARE Classic estándar el UID es de solo lectura, pero existen tarjetas regrabables ("*magic cards*") diseñadas para clonar UIDs arbitrarios. Es decir, el sistema no verifica una identidad criptográficamente firmada, sino un número de serie — la seguridad del control de acceso descansa en que la lista de UIDs válidos en `rfid.db` esté bien controlada administrativamente, **no** en una propiedad criptográfica de la tarjeta. Es un nivel de seguridad razonable para control de asistencia (bajo riesgo), pero insuficiente si en el futuro el sistema protegiera activos críticos — en ese caso, la vía sería migrar a MIFARE DESFire (autenticación AES) u otro esquema con autenticación mutua.
 
 ---
 
@@ -547,9 +514,7 @@ Formato base: `HH:MM:SS  NIVEL    mensaje`.
 
 ### 4.4 Modo simulación (sin hardware)
 
-**Estado actual del código:** cuando `mfrc522`/`RPi.GPIO` no se pueden
-importar, `RFID_OK` queda en `False` y `main()` entra directo en un loop de
-espera pasivo:
+**Estado actual del código:** cuando `mfrc522`/`RPi.GPIO` no se pueden importar, `RFID_OK` queda en `False` y `main()` entra directo en un loop de espera pasivo:
 
 ```python
 if not RFID_OK:
@@ -558,14 +523,9 @@ if not RFID_OK:
         time.sleep(60)
 ```
 
-Es importante ser precisos: esto **no simula lecturas de tarjetas**, solo
-evita que el proceso truene por falta de hardware y lo deja "vivo" sin hacer
-nada — para efectos prácticos, el lector queda inactivo mientras tanto.
-
-**Cómo probar la lógica de negocio sin hardware real:** la función que vale
-la pena probar de forma aislada es `procesar()`, ya que ahí vive toda la
-lógica de aceptado/rebote/ya_escaneado y no depende del hardware en
-absoluto — solo de un UID (`string`) y acceso a `rfid.db`:
+Es importante ser precisos: esto **no simula lecturas de tarjetas**, solo evita que el proceso truene por falta de hardware y lo deja "vivo" sin hacer
+nada — para efectos prácticos, el lector queda inactivo mientras tanto. **Cómo probar la lógica de negocio sin hardware real:** la función que vale
+la pena probar de forma aislada es `procesar()`, ya que ahí vive toda la lógica de aceptado/rebote/ya_escaneado y no depende del hardware en absoluto — solo de un UID (`string`) y acceso a `rfid.db`:
 
 ```bash
 cd shared
@@ -576,13 +536,10 @@ print(resultado)
 "
 ```
 
-Esto ejecuta exactamente la misma lógica que correría el lector real ante
-una tarjeta física, sin necesitar el RC522 conectado.
+Esto ejecuta exactamente la misma lógica que correría el lector real ante una tarjeta física, sin necesitar el RC522 conectado.
 
-**Cambiar entre modo real y espera pasiva** no requiere ninguna bandera: es
-automático según si `mfrc522`/`RPi.GPIO` están instalados en el entorno.
-Para forzar el modo hardware en la propia Pi basta con tener el módulo
-conectado y las dependencias instaladas (incluidas en `requirements.txt`).
+**Cambiar entre modo real y espera pasiva** no requiere ninguna bandera: es automático según si `mfrc522`/`RPi.GPIO` están instalados en el entorno.
+Para forzar el modo hardware en la propia Pi basta con tener el módulo conectado y las dependencias instaladas (incluidas en `requirements.txt`).
 
 > **Nota para trabajo futuro:** si se necesita probar el flujo completo
 > (loop, debounce, colores en consola) sin tarjeta física, una mejora
