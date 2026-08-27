@@ -1745,44 +1745,134 @@ curl -s -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
 
 > **Nota:** esta documentación se generó leyendo directamente `app_crud.py`. Si el archivo cambia — nuevos endpoints, nuevos parámetros, cambios en las respuestas — esta sección debe regenerarse contra el código actualizado para no quedar desincronizada.
 
-<a id="8"></a>
-## 8. Flujo de datos de extremo a extremo
-[[Volver a la tabla de contenido]](#toc)
+### 8.1 Diagrama de secuencia
+
+El siguiente diagrama detalla, paso a paso, lo que ocurre entre que se acerca la tarjeta y el momento en que el evento aparece en pantalla, incluyendo las consultas SQL específicas y tiempos aproximados de cada etapa.
 
 ```python
-fig, ax = new_canvas(13, 4.6, "Flujo de datos — de la tarjeta a la pantalla")
+fig, ax = new_canvas(13.5, 10.5, "Diagrama de secuencia — Tarjeta → rfid.db → Dashboard")
 
-steps = [
-    ("Tarjeta\nacercada", COLOR['neutral']),
-    ("Lector RC522\nlee UID", COLOR['primary']),
-    ("INSERT en\nrfid.db (WAL)", COLOR['accent']),
-    ("Dashboard consulta\ncada refresco", COLOR['secondary']),
-    ("Se renderiza en\npantalla kiosco", COLOR['neutral']),
-]
+lanes = {
+    "Tarjeta":                          1.2,
+    "rfid_reader.py\n(RC522, root)":    3.7,
+    "rfid.db\n(SQLite WAL)":            6.6,
+    "app_dashboard.py\n(Flask/Gunicorn)": 9.4,
+    "Navegador\n(kiosk.js)":            12.0,
+}
 
-x = 0.4
-w, h, gap = 2.1, 1.6, 0.55
-y = 2.1
-positions = []
-for label, c in steps:
-    p = draw_box(ax, (x, y), w, h, label, fc=c, fs=9.5)
-    positions.append((x, x + w))
-    x += w + gap
+y_top, y_bot = 9.0, 0.6
+for name, x in lanes.items():
+    ax.plot([x, x], [y_top, y_bot], color=COLOR['neutral'],
+            linewidth=1, linestyle=(0, (4, 3)), zorder=0, alpha=0.5)
+    draw_box(ax, (x - 1.05, y_top + 0.05), 2.1, 0.55, name, fc=COLOR['primary'], fs=8.3)
 
-for i in range(len(positions) - 1):
-    draw_arrow(ax, (positions[i][1], y + h/2), (positions[i+1][0], y + h/2))
+def msg(y, x_from, x_to, text, t_label, color=COLOR['secondary'], dashed=False):
+    a = FancyArrowPatch((x_from, y), (x_to, y), arrowstyle='-|>', mutation_scale=13,
+                         color=color, linewidth=1.6,
+                         linestyle=(0, (3, 2)) if dashed else 'solid', zorder=2)
+    ax.add_patch(a)
+    ax.text((x_from + x_to) / 2, y + 0.13, text, fontsize=7.8, ha='center', color=color, zorder=3)
+    ax.text(0.15, y, t_label, fontsize=7.5, ha='left', color=COLOR['neutral'], family='monospace')
 
-ax.text(6.5, 0.55,
-        "En paralelo: el panel CRUD (puerto 5001) permite exportar CSV bajo demanda\n" "y administrar estudiantes/tarjetas, sin interferir con el flujo de registro.", ha='center', fontsize=9.5, style='italic', color=COLOR['neutral'])
+y = 8.3
+msg(y, lanes["Tarjeta"], lanes["rfid_reader.py\n(RC522, root)"],
+    "Acerca tarjeta al lector", "t+0 ms")
+
+y -= 0.55
+msg(y, lanes["rfid_reader.py\n(RC522, root)"] - 0.3, lanes["rfid_reader.py\n(RC522, root)"] + 0.3,
+    "MFRC522_Request + Anticoll\n(siguiente ciclo de polling)", "t+0–150 ms", color=COLOR['warning'])
+
+y -= 0.75
+msg(y, lanes["rfid_reader.py\n(RC522, root)"], lanes["rfid.db\n(SQLite WAL)"],
+    "SELECT * FROM tarjetas WHERE uid=?\n(idx_tarjetas_uid)", "t+150 ms")
+
+y -= 0.55
+msg(y, lanes["rfid.db\n(SQLite WAL)"], lanes["rfid_reader.py\n(RC522, root)"],
+    "fila tarjeta + id_estudiante", "t+152 ms", color=COLOR['accent'])
+
+y -= 0.55
+msg(y, lanes["rfid_reader.py\n(RC522, root)"], lanes["rfid.db\n(SQLite WAL)"],
+    "SELECT COUNT(*) ... aceptado HOY\n(idx_registros_estudiante_evento)", "t+153 ms")
+
+y -= 0.55
+msg(y, lanes["rfid.db\n(SQLite WAL)"], lanes["rfid_reader.py\n(RC522, root)"],
+    "0 (primer escaneo del día)", "t+155 ms", color=COLOR['accent'])
+
+y -= 0.55
+msg(y, lanes["rfid_reader.py\n(RC522, root)"], lanes["rfid.db\n(SQLite WAL)"],
+    "INSERT INTO registros_asistencia\n(tipo_evento='aceptado')", "t+156 ms", color=COLOR['success'])
+
+y -= 0.55
+msg(y, lanes["rfid.db\n(SQLite WAL)"], lanes["rfid_reader.py\n(RC522, root)"],
+    "commit OK (WAL append)", "t+161 ms", color=COLOR['success'])
+
+y -= 0.7
+ax.text(lanes["rfid_reader.py\n(RC522, root)"], y, "Escribe en reader.log\n[ACEPTADO] Juan Pérez",
+        ha='center', fontsize=7.6, style='italic', color=COLOR['neutral'])
+
+y -= 0.75
+msg(y, lanes["Navegador\n(kiosk.js)"], lanes["app_dashboard.py\n(Flask/Gunicorn)"],
+    "GET /api/ultimo-evento\n(poll cada 800 ms)", "t+0–800 ms", color=COLOR['neutral'], dashed=True)
+
+y -= 0.55
+msg(y, lanes["app_dashboard.py\n(Flask/Gunicorn)"], lanes["rfid.db\n(SQLite WAL)"],
+    "SELECT ... LEFT JOIN estudiantes\nORDER BY timestamp DESC LIMIT 1", "t+161–961 ms")
+
+y -= 0.55
+msg(y, lanes["rfid.db\n(SQLite WAL)"], lanes["app_dashboard.py\n(Flask/Gunicorn)"],
+    "fila + datos del estudiante", "+2–5 ms", color=COLOR['accent'])
+
+y -= 0.55
+msg(y, lanes["app_dashboard.py\n(Flask/Gunicorn)"], lanes["Navegador\n(kiosk.js)"],
+    "200 JSON {estado:'aceptado', nombre, foto...}", "+1–3 ms", color=COLOR['secondary'])
+
+y -= 0.7
+ax.text(lanes["Navegador\n(kiosk.js)"], y, "showModal() + playSound()\nrenderiza foto y glow",
+        ha='center', fontsize=7.6, style='italic', color=COLOR['neutral'])
+
+y -= 0.85
+msg(y, lanes["Navegador\n(kiosk.js)"], lanes["app_dashboard.py\n(Flask/Gunicorn)"],
+    "GET /api/estado\n(poll cada 5000 ms)", "cada 5 s", color=COLOR['warning'], dashed=True)
+
+y -= 0.55
+msg(y, lanes["app_dashboard.py\n(Flask/Gunicorn)"], lanes["rfid.db\n(SQLite WAL)"],
+    "3× COUNT(*) + top10 repetidos\n+ 30 eventos + agregación por hora", "+5–25 ms", color=COLOR['warning'])
+
+y -= 0.55
+ax.text(lanes["app_dashboard.py\n(Flask/Gunicorn)"], y,
+        "subprocess: systemctl is-active\nrfid-reader (bloqueante)",
+        ha='center', fontsize=7.6, color=COLOR['danger'], style='italic')
 
 plt.tight_layout()
 plt.show()
 ```
 
+> **Lectura del diagrama:** hay dos rutas de latencia independientes. La ruta de **escritura** (tarjeta → `rfid.db`) es rápida y determinística (~160 ms, dominada por el intervalo de *polling* del RC522, `POLL_S=0.15s`, ver §4). La ruta de **lectura** (dashboard → pantalla) depende de los intervalos de *polling* del navegador (`checkNewEvents` cada 800 ms, `updateStats` cada 5000 ms, ver `dashboard.html`) — no hay *push* real (WebSocket/SSE), así que el peor caso ("tarjeta acercada justo después de un poll") añade hasta 800 ms adicionales antes de que el modal aparezca.
 
-    
-![png](README_files/README_23_0.png)
-    
+---
+
+### 8.2 Tiempos de respuesta y cuellos de botella
+
+| Etapa | Típico | Peor caso | Referencia |
+|---|---|---|---|
+| Detección de tarjeta (*polling* RC522) | 0–75 ms | 150 ms (`POLL_S`) | §4 |
+| `SELECT tarjetas WHERE uid=?` (indexado) | 1–3 ms | 10–15 ms | §6.2, `idx_tarjetas_uid` |
+| `SELECT COUNT(*)` ¿ya aceptado hoy? | 1–3 ms | 10–15 ms | §6.2, `idx_registros_estudiante_evento` |
+| `INSERT` en `registros_asistencia` (WAL) | 2–8 ms | 20–50 ms (fsync en microSD) | §6.1 |
+| Latencia de *polling* del navegador hasta detectar el evento | 0–800 ms | 800 ms (`POLL_NEW_EVENT_MS`) | `dashboard.html` |
+| `GET /api/ultimo-evento` | 3–8 ms | 15–30 ms | `app_dashboard.py` |
+| `GET /api/estado` (agregaciones + `systemctl`) | 15–60 ms | **100–400 ms** | ver punto 1 abajo |
+| **Total tarjeta → modal visible** | **~250–350 ms** | **hasta ~1.1 s** | — |
+
+**Cuellos de botella identificados:**
+
+1. **`subprocess.run(['systemctl','is-active',...])` en cada llamada a `/api/estado`.** Es la operación más lenta del endpoint (50–300 ms vs. 1–5 ms de las consultas SQL); se repite cada 5 s por cada cliente conectado, sin necesidad real de esa frecuencia.
+2. **Ausencia de *push* (WebSocket/SSE).** Toda actualización depende de *polling* HTTP, lo que impone un piso de latencia artificial (hasta 800 ms) y genera tráfico constante incluso sin eventos nuevos.
+3. **I/O de microSD.** Con `synchronous=FULL` (default en WAL si no se ajusta), cada `INSERT` espera un `fsync` real — decenas de ms en microSD de gama baja. No es crítico al volumen actual (§6.6), pero sería el primer límite si creciera la frecuencia de escritura.
+4. **`-w 2 --threads 2` en `rfid-dashboard`.** Soporta 4 peticiones concurrentes; hoy no es problema porque solo hay un consumidor (el kiosco), pero limitaría si se abriera el dashboard a más pantallas simultáneas.
+5. **Sin caché en `/api/estado`.** Las agregaciones se recalculan por completo en cada poll; razonable al volumen actual, pero sería el segundo límite si `registros_asistencia` creciera sin aplicar la estrategia de archivado de §6.6.
+
+Vale la pena incorporar en la tabla de §14.2: cachear el resultado de `systemctl is-active` (refrescándolo cada 30–60 s en vez de en cada petición), para aliviar el endpoint más lento del sistema sin perder utilidad práctica.
 
 
 <a id="9"></a>
