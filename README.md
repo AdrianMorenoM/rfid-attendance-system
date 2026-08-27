@@ -1209,25 +1209,533 @@ VACUUM;  -- compacta rfid.db tras la purga masiva
 <a id="7"></a>
 ## 7. API REST
 
-Expuesta por `app_crud.py` en el puerto **5001**, protegida con Basic Auth (`hmac.compare_digest`, resistente a *timing attacks*) aplicada globalmente vía `@app.before_request` — ninguna ruta queda desprotegida por descuido.
+Documentación completa de la API, extraída directamente de `app_crud.py`. El servicio expone más de 50 rutas, agrupadas por función. Todo corre sobre Flask + Gunicorn en el puerto **5001** (ver §5.4).
 
-| Endpoint | Método | Función |
+---
+
+### 7.1 Modelo de autenticación y control de acceso (corrección importante)
+
+El sistema **no usa tokens** (JWT, OAuth, API keys) — la autenticación es **HTTP Basic Auth**, aplicada globalmente a **todas** las rutas mediante `@app.before_request`, sin excepción:
+
+```python
+@app.before_request
+def _enforce_basic_auth():
+    ...
+    auth = request.authorization
+    if not auth or not _check_credentials(auth.username, auth.password):
+        _register_auth_failure(ip)
+        return _auth_required_response()   # 401
+```
+
+Las credenciales se comparan con `hmac.compare_digest`, resistente a *timing attacks*, contra las variables de entorno `ADMIN_USER` / `ADMIN_PASSWORD` (obligatorias — el proceso ni siquiera arranca si faltan, ver `_get_required_env`). No hay endpoint de "login" que devuelva un token: cada petición debe incluir el encabezado `Authorization: Basic ...` (que `curl -u usuario:contraseña` genera automáticamente).
+
+**Capas de protección, en el orden real en que se ejecutan** (según el orden de registro de los `before_request` en el código):
+
+| Orden | Capa | Código | Efecto si falla |
+|---|---|---|---|
+| 1 | **Allowlist de IP** (`_enforce_ip_allowlist`) | Solo activa si `ALLOWED_SUBNET` está definida y no es `"disabled"` | `403` — nada más se ejecuta, ni siquiera se evalúa Basic Auth |
+| 2 | **Rate limit global** (Flask-Limiter, `60/minuto` por IP) | Se **exime** automáticamente si la petición ya trae credenciales Basic Auth válidas (`_exempt_authenticated_admin_from_global_limit`) — en la práctica, solo protege contra *scanning* no autenticado | `429` |
+| 3 | **Rate limit de intentos fallidos de auth** (`5/minuto` y `20/15 min` por IP, independiente del límite global) | Se evalúa antes de comprobar credenciales | `429`, y se registra en `audit_log` como `auth_rate_limited` |
+| 4 | **Basic Auth** (`_enforce_basic_auth`) | Credenciales inválidas o ausentes | `401` con header `WWW-Authenticate: Basic realm="RFID Admin"` |
+| 5 | **Encabezado anti-CSRF** (`require_xhr_header`, solo en rutas destructivas específicas, ver §7.2) | Falta `X-Requested-With: XMLHttpRequest` | `403` |
+
+> **Nota de código:** existe una función `require_basic_auth` (decorador) definida en el archivo pero **no se usa en ninguna ruta** — toda la protección real viene del `before_request` global (`_enforce_basic_auth`). Es código muerto/redundante, no una segunda capa activa.
+
+**Rutas que además exigen el encabezado anti-CSRF** `X-Requested-With: XMLHttpRequest` (vía `@require_xhr_header`), por ser destructivas o de alto impacto:
+
+- `POST /api/hardware/system/optimize`
+- `POST /api/hardware/system/reboot`
+- `POST /api/hardware/system/shutdown`
+- `POST /api/software/database/restore`
+- `POST /api/software/database/purge`
+- `POST /api/estudiantes/baja-masiva`
+
+**Cabeceras de seguridad** (`_set_security_headers`, aplicadas a *toda* respuesta vía `@app.after_request`): `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy` restrictiva, `Referrer-Policy: no-referrer`, `Permissions-Policy` que deshabilita cámara/micrófono/geolocalización.
+
+**Límite de tamaño de petición:** `MAX_CONTENT_LENGTH = 5 MB` (`app.config`) — cualquier `POST`/`PUT` con cuerpo mayor es rechazado por Flask automáticamente (`413 Request Entity Too Large`, no capturado por el decorador `@api`).
+
+---
+
+### 7.2 Manejo de errores — el decorador `@api`
+
+La mayoría de las rutas usan el decorador `@api`, que homogeniza los errores no controlados:
+
+```python
+def api(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except sqlite3.IntegrityError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            log.exception(f"Error en {f.__name__}")
+            return jsonify({'success': False, 'error': 'Error interno'}), 500
+    return wrapper
+```
+
+**Cuatro rutas NO usan `@api`** y por lo tanto no devuelven errores en JSON si algo truena internamente (devuelven la página de error HTML por defecto de Flask, `500`):
+
+- `GET /` (página del panel)
+- `GET /api/export/estudiantes`
+- `GET /api/export/registros`
+- `GET /api/software/database/backups/<filename>/download`
+
+Esto es relevante al integrar la API con otro sistema: un `try/except` que espere siempre JSON debe contemplar este caso para esas cuatro rutas específicamente.
+
+---
+
+### 7.3 Estadísticas y analítica
+
+| Método | Ruta | Query params | Descripción |
+|---|---|---|---|
+| GET | `/api/estadisticas` | — | Conteos globales: estudiantes, tarjetas, registros de hoy, aceptados hoy |
+| GET | `/api/analytics` | — | Asistencia de los últimos 7 días, total del mes, distribución por semestre, distribución por hora (hoy), top 10 estudiantes con más asistencias |
+
+**Ejemplo — `GET /api/estadisticas`**
+
+```bash
+curl -s -u admin:CONTRASEÑA http://127.0.0.1:5001/api/estadisticas
+```
+```json
+{
+  "success": true,
+  "stats": {
+    "total_estudiantes": 412,
+    "estudiantes_activos": 398,
+    "total_tarjetas": 405,
+    "tarjetas_activas": 401,
+    "registros_hoy": 634,
+    "total_registros": 58210,
+    "aceptados_hoy": 380
+  }
+}
+```
+
+> Nota: todas las consultas de estos dos endpoints filtran por `carrera = "ITIC's"` (constante `CARRERA` en el código) — el sistema, tal como está desplegado, está acotado a una sola carrera, no a todo el ITSOEH.
+
+---
+
+### 7.4 Hardware (monitoreo y control de la Raspberry Pi)
+
+| Método | Ruta | Auth extra | Body / Query | Descripción |
+|---|---|---|---|---|
+| GET | `/api/hardware/status` | — | — | Temperatura CPU, uso de CPU/RAM/disco, estado del RC522 (`conectado`/`módulo_ok`/`spi_no_detectado`), tamaño y conteo de `rfid.db`, uptime |
+| GET | `/api/hardware/services` | — | — | Estado (`active`/`enabled`) de los 3 servicios RFID |
+| POST | `/api/hardware/services/<service_name>/<action>` | — | — | `action` ∈ `start,stop,restart,enable,disable,status`; `service_name` debe estar en la lista blanca `RFID_SERVICES` |
+| GET | `/api/hardware/services/<service_name>/logs` | — | `?lines=N` (def. 50, máx. 500) | Últimas N líneas de `journalctl -u <servicio>` |
+| GET | `/api/hardware/network/status` | — | — | Redes visibles, SSID conectado, IP, gateway, DNS, prueba de internet (ping a 8.8.8.8) |
+| POST | `/api/hardware/network/scan` | — | — | Fuerza un `nmcli dev wifi rescan` |
+| POST | `/api/hardware/network/connect` | — | `{"ssid": "...", "password": "..."}` | `ssid` requerido; conecta o crea el perfil de red |
+| POST | `/api/hardware/network/disconnect` | — | — | Desconecta la interfaz Wi-Fi activa |
+| POST | `/api/hardware/network/restart` | — | — | Reinicia `NetworkManager.service` — **sin exigir `confirm`** (ver nota abajo) |
+| POST | `/api/hardware/system/optimize` | XHR | `{"confirm": true}` | Libera caché de memoria (`sync` + drop\_caches) |
+| POST | `/api/hardware/system/reboot` | XHR | `{"confirm": true}` | Reinicia la Raspberry Pi; queda en `audit_log` |
+| POST | `/api/hardware/system/shutdown` | XHR | `{"confirm": true}` | Apaga la Raspberry Pi; queda en `audit_log` |
+
+**Nota:** `/api/hardware/network/restart` reinicia `NetworkManager` con solo un `POST` vacío — no exige `confirm` ni encabezado XHR, a diferencia de otras rutas destructivas de esta misma familia (§12.3-4 lo marca como hallazgo pendiente).
+
+**Ejemplo — reiniciar el lector RFID**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  http://127.0.0.1:5001/api/hardware/services/rfid-reader.service/restart
+```
+```json
+{
+  "success": true,
+  "service": "rfid-reader.service",
+  "action": "restart",
+  "active": true,
+  "enabled": true,
+  "active_text": "active",
+  "enabled_text": "enabled",
+  "result": {"success": true, "returncode": 0, "stdout": "", "stderr": ""}
+}
+```
+
+Si el usuario `admin` no tiene permisos `sudo NOPASSWD` configurados para `systemctl`, la respuesta es:
+```json
+{"success": false, "error": "Permiso denegado. Configura sudo NOPASSWD.", "result": {"...": "..."}}
+```
+con código **403**.
+
+**Ejemplo — apagar la Raspberry Pi (requiere encabezado anti-CSRF)**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": true}' \
+  http://127.0.0.1:5001/api/hardware/system/shutdown
+```
+Sin el header `X-Requested-With`, la respuesta es `403` con `{"success": false, "error": "Falta encabezado requerido."}`, **antes** de siquiera revisar el cuerpo.
+
+---
+
+### 7.5 Software admin — servicios (espejo de §7.4)
+
+`app_crud.py` expone un **segundo conjunto de rutas idéntico en comportamiento** a las de hardware, bajo el prefijo `/api/software/` en vez de `/api/hardware/` — aparentemente para separar visualmente, en el panel, la pestaña "Hardware" de la pestaña "Software", aunque internamente llaman a las mismas funciones auxiliares (`_systemctl`, `_run`, lista blanca `RFID_SERVICES`).
+
+| Método | Ruta | Equivale a |
 |---|---|---|
-| `/api/estudiantes` | GET | Lista/búsqueda de estudiantes |
-| `/api/tarjetas` | GET | Lista de tarjetas registradas |
-| `/api/rfid/guardar-uid` | POST | Asocia un UID capturado a un estudiante |
-| `/api/rfid/admin-scan/status` | GET | Estado del modo "escaneo administrativo" |
-| `/api/audit-log` | GET | Consulta la bitácora de auditoría |
-| `/api/export/estudiantes` | GET | Descarga CSV de estudiantes (streaming) |
-| `/api/export/registros` | GET | Descarga CSV de asistencia por fecha (streaming) |
-| `/api/hardware/services` | GET | Estado de los servicios systemd |
-| `/api/hardware/services/<servicio>/<accion>` | POST | Start/stop/restart de un servicio (lista blanca) |
-| `/api/hardware/network/restart` | POST | Reinicia NetworkManager |
-| `/api/hardware/system/optimize` | POST | Libera caché de memoria |
-| `/api/software/database/status` | GET | Tamaño de BD, conteos, respaldos disponibles |
-| `/api/migrate` | POST | Aplica migraciones de esquema (protegido por *feature flag*) |
+| GET | `/api/software/services` | `GET /api/hardware/services` |
+| POST | `/api/software/services/<service_name>/<action>` | `POST /api/hardware/services/<service_name>/<action>` |
+| GET | `/api/software/services/<service_name>/logs?lines=` | `GET /api/hardware/services/<service_name>/logs` (default `lines=80` en vez de 50) |
 
-El panel **dashboard** (puerto 5000, solo accesible en `localhost`) expone por separado `/api/estado` y `/api/ultimo-evento`, consumidos por el propio navegador en modo kiosco.
+---
+
+### 7.6 Software admin — base de datos
+
+| Método | Ruta | Auth extra | Body / Query | Descripción |
+|---|---|---|---|---|
+| GET | `/api/software/database/status` | — | — | Ruta y tamaño de `rfid.db`, conteos por tabla, número de respaldos |
+| GET | `/api/software/database/backups` | — | — | Lista de respaldos existentes (nombre, tamaño, fecha) |
+| POST | `/api/software/database/backup` | — | — | Crea un respaldo con `sqlite3.Connection.backup()` (WAL-aware) |
+| POST | `/api/software/database/restore` | XHR | `{"filename": "...", "confirm": true}` | Restaura desde un respaldo; crea automáticamente un respaldo de seguridad del estado actual antes de sobrescribir |
+| GET | `/api/software/database/backups/<filename>/download` | — | — | Descarga el archivo `.db` (streaming, `application/octet-stream`) — **sin `@api`** |
+| DELETE | `/api/software/database/backups/<filename>` | — | `?confirm=1` o `{"confirm": true}` | Elimina un archivo de respaldo |
+| POST | `/api/software/database/purge/preview` | — | filtros (ver abajo) | Cuenta cuántos registros coinciden con los filtros, **sin borrar nada** |
+| POST | `/api/software/database/purge` | XHR | filtros + `{"confirm": true}` | Borra los registros que coinciden, tras crear automáticamente un respaldo de seguridad |
+
+**Filtros aceptados por `purge/preview` y `purge`** (todos opcionales, se combinan con `AND`): `fecha_desde`, `fecha_hasta` (`YYYY-MM-DD`), `carrera`, `semestre`, `grupo`, `matricula`, `estudiante_id`.
+
+**Detalle importante de `purge`:** si la creación del respaldo de seguridad falla por cualquier motivo, la purga se **cancela por completo** (`_PurgeBackupError` → `500`) y no se borra ningún registro — es decir, el sistema nunca purga sin haber logrado respaldar antes.
+
+**Ejemplo — vista previa de purga (sin borrar nada)**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"fecha_hasta": "2025-12-31"}' \
+  http://127.0.0.1:5001/api/software/database/purge/preview
+```
+```json
+{"success": true, "count": 14832}
+```
+
+**Ejemplo — ejecutar la purga (requiere `confirm` y el header XHR)**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -H "Content-Type: application/json" \
+  -d '{"fecha_hasta": "2025-12-31", "confirm": true}' \
+  http://127.0.0.1:5001/api/software/database/purge
+```
+```json
+{
+  "success": true,
+  "deleted": 14832,
+  "safety_backup": "rfid_backup_20260827_113045.db",
+  "mensaje": "14832 registro(s) eliminados"
+}
+```
+
+**Ejemplo — restaurar un respaldo**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "rfid_backup_20260815_070000.db", "confirm": true}' \
+  http://127.0.0.1:5001/api/software/database/restore
+```
+```json
+{
+  "success": true,
+  "mensaje": "Base restaurada desde rfid_backup_20260815_070000.db",
+  "safety_backup": "rfid_backup_20260827_113512.db"
+}
+```
+Si el `filename` no cumple el patrón `rfid_backup_YYYYMMDD_HHMMSS.db` (regex `_BACKUP_RE`), la respuesta es `400` — esto es lo que impide *path traversal* (ej. `../../etc/passwd`) mencionado en §12.
+
+---
+
+### 7.7 RFID — escucha activa (alta rápida de una sola tarjeta)
+
+Mecanismo simple usado por el CRUD para capturar **una** tarjeta nueva (por ejemplo, al dar de alta un estudiante desde su ficha):
+
+| Método | Ruta | Body | Descripción |
+|---|---|---|---|
+| POST | `/api/rfid/listen/start` | `{"timeout": 30}` (segundos, opcional) | Activa el modo escucha |
+| GET | `/api/rfid/listen/status` | — | Devuelve `{active, uid, timestamp, expires}`; se auto-desactiva al expirar |
+| POST | `/api/rfid/listen/stop` | — | Cancela la escucha manualmente |
+| POST | `/api/rfid/listen/capture` | `{"uid": "..."}` | Registra el UID capturado — devuelve `409` si el modo no estaba activo |
+
+> Este mecanismo es distinto del flujo descrito en §4.1 del documento original (que usa el archivo de señal `/run/rfid-shared/`). `listen/capture` parece pensado para que **otro proceso o interfaz** empuje el UID directamente por HTTP, no necesariamente el lector físico — conviene aclarar con el equipo de desarrollo cuál de los dos flujos (archivo de señal vs. este endpoint) está realmente en uso en producción.
+
+---
+
+### 7.8 RFID — escaneo masivo administrativo
+
+Flujo para dar de alta **varias** tarjetas nuevas en una sola sesión (ej. inicio de semestre), coordinado con el archivo de señal `/run/rfid-shared/rfid_admin_mode` que ya se documentó en §4.1:
+
+| Método | Ruta | Body | Descripción |
+|---|---|---|---|
+| POST | `/api/rfid/admin-scan/start` | `{"timeout": 300}` (seg., opcional) | Crea el archivo de señal `ADMIN_FLAG`; el lector deja de registrar asistencia y empieza a capturar UIDs |
+| GET | `/api/rfid/admin-scan/status` | — | Polling: lee `ADMIN_UID_FILE` (con `flock`), enriquece cada UID con datos de tarjeta/estudiante si ya existe, acumula la lista de la sesión |
+| POST | `/api/rfid/admin-scan/stop` | — | Elimina los archivos de señal y cierra la sesión |
+| POST | `/api/rfid/admin-scan/guardar` | `{"uids": ["123...", "456..."]}` | Inserta cada UID como tarjeta nueva sin estudiante asignado (`id_estudiante=NULL`); omite los que ya existen |
+| POST | `/api/rfid/admin-scan/eliminar` | `{"uids": [...], "forzar": false}` | Elimina tarjetas de la tabla; si una ya tiene estudiante asignado, se rechaza salvo que `forzar: true` |
+
+**Ejemplo — guardar 2 UIDs capturados en una sesión de alta masiva**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"uids": ["3184920321", "3184920399"]}' \
+  http://127.0.0.1:5001/api/rfid/admin-scan/guardar
+```
+```json
+{
+  "success": true,
+  "resultados": [
+    {"uid": "3184920321", "ok": true,  "msg": "Guardada"},
+    {"uid": "3184920399", "ok": false, "msg": "Ya existe en tarjetas"}
+  ],
+  "guardadas": 1,
+  "total": 2
+}
+```
+
+---
+
+### 7.9 RFID — utilidades de consulta
+
+| Método | Ruta | Query / Params | Descripción |
+|---|---|---|---|
+| GET | `/api/rfid/desconocidos` | — | Top 50 UIDs con eventos `rebote`/`desconocido` que **no** tienen tarjeta registrada, con conteo y último escaneo |
+| POST | `/api/rfid/guardar-uid` | `{"uid": "..."}` | Registra un UID nuevo como tarjeta sin asignar, o informa por qué uno existente no es válido |
+| GET | `/api/rfid/tarjetas-sin-asignar` | — | Últimas 100 tarjetas sin `id_estudiante` |
+| GET | `/api/rfid/alumnos-sin-tarjeta` | — | Estudiantes activos de la carrera sin ninguna tarjeta asignada |
+| GET | `/api/rfid/historial/<uid>` | `uid` en la ruta | Últimos 100 eventos de ese UID específico |
+| GET | `/api/rfid/ultimo-scan` | — | El evento más reciente registrado en todo el sistema, con nombre/matrícula/foto del estudiante si aplica |
+
+**Ejemplo — consultar el historial de una tarjeta**
+
+```bash
+curl -s -u admin:CONTRASEÑA http://127.0.0.1:5001/api/rfid/historial/3184920157
+```
+```json
+{
+  "success": true,
+  "uid": "3184920157",
+  "historial": [
+    {"id": 58210, "id_estudiante": 87, "uid": "3184920157",
+     "timestamp": "2026-08-27 07:16:44", "fecha_dia": "2026-08-27",
+     "tipo_raw": "aceptado", "mensaje": null,
+     "nombre": "Juan Pérez", "matricula": "22011200"}
+  ]
+}
+```
+
+---
+
+### 7.10 Estudiantes
+
+| Método | Ruta | Auth extra | Query / Body | Descripción |
+|---|---|---|---|---|
+| GET | `/api/estudiantes` | — | `?semestre=&grupo=&buscar=` | Lista con conteo de tarjetas y registros por estudiante; `buscar` compara nombre, apellido, matrícula **y** UID de tarjeta |
+| GET | `/api/estudiantes/grupos` | — | — | Estudiantes activos agrupados por `semestre-grupo` |
+| GET | `/api/estudiantes/<id>` | — | — | Ficha de un estudiante — `404` si no existe |
+| POST | `/api/estudiantes` | — | JSON (ver abajo) | Crea un estudiante |
+| PUT | `/api/estudiantes/<id>` | — | JSON (ver abajo) | Actualiza; si la `foto` cambia, borra el archivo anterior del disco |
+| DELETE | `/api/estudiantes/<id>` | — | — | Elimina (físicamente); también borra su foto del disco |
+| POST | `/api/estudiantes/promover` | — | `{"ids":[...]}` **o** `{"desde_semestre": N, "grupo": "..."}`, más `"confirmar": true/false` | Suma 1 al semestre de los estudiantes que coinciden. Sin `confirmar`, solo devuelve cuántos coinciden (vista previa) |
+| POST | `/api/estudiantes/baja-masiva` | XHR | Igual patrón que `promover` (`ids` o `semestre`+`grupo`, + `confirmar`) | Marca `estado='inactivo'` en bloque |
+| POST | `/api/estudiantes/alta-masiva` | — | `{"estudiantes": [{...}, ...]}` | Inserta varios estudiantes; devuelve `creados` y `errores` por fila |
+| GET | `/api/estudiantes/<id>/perfil` | — | — | Estudiante + sus tarjetas + últimos 90 registros + total de asistencias + último acceso |
+
+**Campos JSON de `POST`/`PUT /api/estudiantes`:** `nombre`, `apellido_paterno`, `apellido_materno`, `matricula`, `semestre`, `grupo`, `correo`, `estado` (`activo`/`inactivo`, por defecto `activo`), `foto` (URL relativa devuelta por `/api/upload-foto`, ver §7.12). El campo `carrera` **no se acepta del cliente** — el servidor siempre usa la constante `CARRERA = "ITIC's"`.
+
+**Ejemplo — listar estudiantes de 5° semestre, grupo A**
+
+```bash
+curl -s -u admin:CONTRASEÑA \
+  "http://127.0.0.1:5001/api/estudiantes?semestre=5&grupo=A"
+```
+```json
+{
+  "success": true,
+  "estudiantes": [
+    {
+      "id": 87, "nombre": "Juan", "apellido_paterno": "Pérez", "apellido_materno": "López",
+      "matricula": "22011200", "carrera": "ITIC's", "semestre": 5, "grupo": "A",
+      "correo": "juan.perez@itsoeh.edu.mx", "estado": "activo", "foto": null,
+      "creado_en": "2026-01-15 09:00:00",
+      "tarjetas_asignadas": 1, "total_registros": 143
+    }
+  ]
+}
+```
+
+**Ejemplo — dar de baja masiva a un grupo (vista previa, sin aplicar)**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -H "Content-Type: application/json" \
+  -d '{"semestre": 9, "grupo": "A"}' \
+  http://127.0.0.1:5001/api/estudiantes/baja-masiva
+```
+```json
+{"success": true, "afectados": 28, "aplicado": false, "mensaje": "28 estudiante(s) coinciden"}
+```
+Repetir con `"confirmar": true` en el cuerpo para aplicarla de verdad.
+
+---
+
+### 7.11 Tarjetas
+
+| Método | Ruta | Query / Body | Descripción |
+|---|---|---|---|
+| GET | `/api/tarjetas` | `?limit=&offset=` (limit máx. 200, def. 50) | Lista paginada, con nombre/matrícula del estudiante si tiene uno asignado |
+| POST | `/api/tarjetas` | `{"uid":"...", "id_estudiante": N\|null, "activa": 1}` | Asigna/crea una tarjeta directamente (a diferencia de `/api/rfid/guardar-uid`, aquí sí puede asociarse a un estudiante en el mismo paso) |
+| PUT | `/api/tarjetas/<id>` | `{"uid":"...", "id_estudiante": N\|null, "activa": 0\|1}` | Actualiza una tarjeta existente |
+| DELETE | `/api/tarjetas/<id>` | — | Elimina la tarjeta |
+| POST | `/api/tarjetas/bulk-toggle` | `{"ids":[...], "activa": 0\|1}` | Activa/desactiva varias tarjetas a la vez |
+
+**Ejemplo — asignar una tarjeta ya capturada al estudiante 87**
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"uid": "3184920321", "id_estudiante": 87, "activa": 1}' \
+  http://127.0.0.1:5001/api/tarjetas
+```
+```json
+{"success": true, "id": 406, "mensaje": "Tarjeta asignada"}
+```
+
+Si el `uid` ya existe en la tabla (columna `UNIQUE`), la respuesta es `400`:
+```json
+{"success": false, "error": "UNIQUE constraint failed: tarjetas.uid"}
+```
+(este es el caso capturado por `except sqlite3.IntegrityError` dentro del decorador `@api`, ver §7.2).
+
+---
+
+### 7.12 Registros, auditoría, asistencia del día y fotos
+
+| Método | Ruta | Query / Body | Descripción |
+|---|---|---|---|
+| GET | `/api/registros` | `?limit=&offset=&fecha=&estado=&uid=` (limit máx. 200, def. 25) | Listado paginado de eventos; `estado=aceptado` incluye también el valor legado `entrada`; `uid` hace `LIKE %valor%` |
+| GET | `/api/audit-log` | `?limit=&offset=&accion=&ip=` (limit máx. 200, def. 25) | Bitácora administrativa; `400` si la tabla `audit_log` aún no existe (sugiere correr `/api/migrate`) |
+| GET | `/api/asistencia/hoy` | — | Lista de `id_estudiante` con al menos un `aceptado` hoy (para marcar presentes en la UI) |
+| POST | `/api/upload-foto` | `multipart/form-data`, campo `foto` | Sube y procesa una foto de estudiante |
+
+**`POST /api/upload-foto` — detalle del procesamiento:**
+1. Verifica extensión permitida (`png`, `jpg`, `jpeg`, `gif`, `webp`).
+2. Verifica con Pillow (`Image.verify()` + `Image.load()`) que el contenido sea realmente una imagen válida — no solo el nombre del archivo.
+3. Convierte a `RGB` y redimensiona si excede 2000 px en cualquier dimensión (`Image.thumbnail`, preserva proporción).
+4. Guarda como `.jpg` con calidad 85, con nombre único con timestamp + nombre original saneado (`secure_filename`).
+5. Devuelve la ruta relativa a usar en `foto` al crear/editar un estudiante.
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST \
+  -F "foto=@/ruta/local/estudiante_87.jpg" \
+  http://127.0.0.1:5001/api/upload-foto
+```
+```json
+{"success": true, "foto_url": "/static/fotos/20260827_114501_123456_estudiante_87.jpg"}
+```
+
+---
+
+### 7.13 Exportación CSV
+
+| Método | Ruta | Query | Salida |
+|---|---|---|---|
+| GET | `/api/export/estudiantes` | — | CSV completo del padrón de la carrera configurada |
+| GET | `/api/export/registros` | `?fecha=YYYY-MM-DD` (por defecto, **hoy**) | CSV de asistencia de **un solo día** |
+
+**Nota:** `/api/export/registros` solo acepta una fecha puntual (`?fecha=`, por defecto el día actual) — no admite un rango de fechas vía la API. Si se necesita un rango, hay que llamar al endpoint una vez por cada día y concatenar los CSV, o construir la consulta directamente contra `rfid.db` (ver §6.4-g, que sí soporta `BETWEEN` por SQL directo).
+
+Dos detalles de seguridad/compatibilidad en la generación del CSV que vale la pena documentar:
+
+- **BOM UTF-8** (`\ufeff`) al inicio del archivo — necesario para que Excel abra los acentos correctamente sin configurarlo manualmente.
+- **Neutralización de inyección de fórmulas CSV** (`_csv_safe`): cualquier campo de texto (nombre, correo, grupo, mensaje) cuyo primer carácter sea `=`, `+`, `-` o `@` se antepone con una comilla simple. Esto evita que un nombre malicioso como `=cmd|'/c calc'!A1` se interprete como fórmula al abrir el CSV en Excel/Sheets — una protección que no estaba documentada en la revisión de seguridad original (§12) y que conviene añadir a la lista de buenas prácticas ya implementadas.
+
+```bash
+curl -s -u admin:CONTRASEÑA \
+  "http://127.0.0.1:5001/api/export/registros?fecha=2026-08-27" \
+  -o registros_2026-08-27.csv
+```
+
+```
+ID,Timestamp,Tipo,UID,Nombre,Matrícula,Semestre,Grupo,Mensaje
+58210,2026-08-27 07:16:44,aceptado,3184920157,Juan Pérez,22011200,5,A,
+58211,2026-08-27 07:18:02,rebote,2200981144,DESCONOCIDO,,,,UID no registrado
+```
+
+---
+
+### 7.14 Migración de esquema
+
+| Método | Ruta | Body | Descripción |
+|---|---|---|---|
+| POST | `/api/migrate` | — | Aplica migraciones incrementales (agrega `estudiantes.grupo`, `registros_asistencia.fecha_dia`, crea `audit_log` y su índice) |
+
+**Detalle de diseño relevante para seguridad:** cuando `ALLOW_HTTP_MIGRATIONS` no está activo, el endpoint no responde `403` (que confirmaría que la ruta existe pero está bloqueada) sino `abort(404)` — se hace pasar por una ruta inexistente para no revelar su presencia a quien esté explorando la API sin autorización:
+
+```python
+if not ALLOW_HTTP_MIGRATIONS:
+    log.warning(...)
+    abort(404)
+```
+
+Cada sentencia SQL se ejecuta en su propio `try/except sqlite3.OperationalError`, así que volver a correr `/api/migrate` sobre una base ya migrada es seguro (los `ALTER TABLE` que fallan porque la columna ya existe simplemente se reportan con `"ok": false` en el resultado, sin detener las demás).
+
+```bash
+curl -s -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
+```
+```json
+{
+  "success": true,
+  "results": [
+    {"sql": "ALTER TABLE estudiantes ADD COLUMN grupo TEXT DEFAULT ''", "ok": false,
+     "msg": "duplicate column name: grupo"},
+    {"sql": "ALTER TABLE registros_asistencia ADD COLUMN fecha_dia TEXT", "ok": false,
+     "msg": "duplicate column name: fecha_dia"},
+    {"sql": "CREATE TABLE IF NOT EXISTS audit_log (...)", "ok": true},
+    {"sql": "CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ...", "ok": true}
+  ]
+}
+```
+
+---
+
+### 7.15 Códigos de respuesta
+
+| Código | Significado en este sistema | Dónde aparece |
+|---|---|---|
+| **200** | Operación exitosa | Toda respuesta normal. **Ojo:** algunas operaciones "fallidas desde el punto de vista de negocio" (ej. UID inválido en `/api/rfid/guardar-uid`) devuelven `200` con `"success": false` en el cuerpo — hay que revisar siempre el campo `success`, no solo el código HTTP |
+| **400** | Petición mal formada o violación de restricción de datos | Parámetros faltantes/inválidos (`SSID requerido`, `UID requerido`, `filename inválido`); `sqlite3.IntegrityError` capturado por `@api` (ej. UID duplicado); falta `confirm` en operaciones destructivas |
+| **401** | Credenciales de Basic Auth ausentes o incorrectas | Cualquier ruta, ya que la autenticación es global |
+| **403** | Acceso denegado por política, no por credenciales | IP fuera de `ALLOWED_SUBNET`; servicio fuera de la lista blanca `RFID_SERVICES`; falta el header `X-Requested-With` en rutas protegidas; `sudo` sin permisos configurados |
+| **404** | Recurso no encontrado | Estudiante/respaldo inexistente; interfaz Wi-Fi no encontrada; `/api/migrate` cuando está deshabilitado (deliberadamente, ver §7.14) |
+| **409** | Conflicto de estado | `/api/rfid/listen/capture` cuando el modo escucha no está activo |
+| **429** | Demasiadas solicitudes | Límite global (60/min) o límite específico de intentos fallidos de autenticación (5/min o 20/15min) |
+| **500** | Error interno no controlado | Cualquier excepción no prevista dentro de una ruta con `@api`; en las 4 rutas sin `@api` (§7.2), un error interno da la página HTML de error estándar de Flask, no JSON |
+| **413** | Cuerpo de la petición demasiado grande | Automático por Flask/Werkzeug si el `POST`/`PUT` supera `MAX_CONTENT_LENGTH` (5 MB) |
+
+---
+
+### 7.16 Probar la API localmente con Postman o Insomnia
+
+1. **Crear una colección/workspace nuevo** apuntando a `http://127.0.0.1:5001` (o la IP de la Raspberry Pi en la red local, puerto 5001) como variable de entorno base (`{{base_url}}`).
+2. **Configurar autenticación a nivel de colección**, no por petición: en Postman, pestaña *Authorization* de la colección → tipo **Basic Auth** → usuario/contraseña de `ADMIN_USER`/`ADMIN_PASSWORD`. Todas las peticiones hijas heredan esa configuración automáticamente (equivalente a `curl -u`). En Insomnia, se configura igual a nivel de *Folder* raíz.
+3. **Variables de entorno recomendadas:** `base_url`, `admin_user`, `admin_password`, y una variable `estudiante_id` de prueba para reutilizar en varias peticiones (`{{base_url}}/api/estudiantes/{{estudiante_id}}`).
+4. **Para rutas con el header anti-CSRF** (§7.1): agregar manualmente en cada petición destructiva el header `X-Requested-With: XMLHttpRequest` — ni Postman ni Insomnia lo agregan por defecto, a diferencia de un navegador con `fetch()`/`XMLHttpRequest` real.
+5. **Para `/api/upload-foto`:** usar el modo `form-data` (no `raw`/JSON) y definir el campo `foto` como tipo **File**, seleccionando una imagen local.
+6. **Para probar el rate limiting de autenticación** (5/min): usar credenciales incorrectas a propósito varias veces seguidas contra cualquier endpoint y verificar que, tras el quinto intento en un minuto, la respuesta cambia de `401` a `429` con `{"error": "Demasiados intentos fallidos..."}`.
+7. **Precaución con endpoints destructivos durante las pruebas:** `/api/software/database/purge`, `/api/estudiantes/baja-masiva`, `/api/hardware/system/reboot` y `/api/hardware/system/shutdown` tienen efectos reales e irreversibles (o que requieren estar físicamente en la Pi para revertir). Se recomienda **probarlos primero contra una copia de la base de datos** (`cp shared/rfid.db shared/rfid_test.db`, cambiando temporalmente la variable `DB` del script) en vez de contra `rfid.db` de producción, y usar siempre primero la variante `/preview` cuando exista (ej. `purge/preview`, o `promover`/`baja-masiva` sin `confirmar`).
+8. **Generar la colección automáticamente (opcional):** ya que el formato elegido para esta documentación es Markdown + `curl` (no un archivo `openapi.yaml`), la forma más rápida de tener algo importable en Postman es usar su función *Import → Raw text → From cURL* pegando, uno por uno, los comandos `curl` de esta sección — Postman los convierte automáticamente en peticiones de la colección.
+
+---
+
+> **Nota:** esta documentación se generó leyendo directamente `app_crud.py`. Si el archivo cambia — nuevos endpoints, nuevos parámetros, cambios en las respuestas — esta sección debe regenerarse contra el código actualizado para no quedar desincronizada.
 
 <a id="8"></a>
 ## 8. Flujo de datos de extremo a extremo
