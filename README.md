@@ -3,7 +3,7 @@
 # Sistema de Control de Asistencia RFID
 ## Documentación Técnica Integral
 
-**Instituto Tecnológico Superior del Occidente del Estao de Hidalgo (ITSOEH)**
+**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH)**
 **Ingeniería en Tecnologías de la Información y Comunicación**
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
@@ -811,7 +811,7 @@ gunicorn -w 2 --threads 2 -b 0.0.0.0:5001 --timeout 120 app_crud:app
 Esto corre en primer plano — `Ctrl+C` para detenerlo. Sirve para ver errores de arranque directo en la terminal, sin pasar por `journalctl`.
 
 <a id="6"></a>
-## 6. Base de datos (ampliación)
+## 6. Base de datos
 
 **Motor:** SQLite en modo **WAL** (*Write-Ahead Logging*), que permite lecturas concurrentes sin bloquear las escrituras — importante porque el lector escribe constantemente mientras el dashboard y el CRUD leen en paralelo.
 
