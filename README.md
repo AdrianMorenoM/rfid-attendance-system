@@ -1908,7 +1908,6 @@ plt.show()
 
 Vale la pena incorporar en la tabla de §14.2: cachear el resultado de `systemctl is-active` (refrescándolo cada 30–60 s en vez de en cada petición), para aliviar el endpoint más lento del sistema sin perder utilidad práctica.
 
-
 <a id="9"></a>
 ## 9. Analítica y panel de control (dashboard)
 
@@ -1919,10 +1918,9 @@ El dashboard (`app_dashboard.py`) calcula, todo referido **al día en curso**:
 - Top 10 UIDs con más escaneos repetidos en el día
 - Listado de eventos recientes (con datos del estudiante)
 - Distribución de escaneos por hora del día (única gráfica del sistema, dibujada con
-  `<canvas>` + JavaScript plano, sin librería externa)
+  `<div>` posicionados por CSS y JavaScript plano, sin `<canvas>` ni librería externa — ver §9.2)
 
 La siguiente gráfica **ilustra el tipo de visualización** que genera el sistema en producción (distribución horaria de escaneos), con datos de ejemplo — no son datos reales extraídos de `rfid.db`, sino una representación del patrón típico esperado en un horario escolar.
-
 
 ```python
 horas = list(range(6, 22))
@@ -1952,17 +1950,278 @@ plt.show()
     
 
 
+> **Para reemplazar con datos reales:** conecta esta celda a `rfid.db` con `sqlite3`/`pandas` y agrupa `registros_asistencia` por `strftime('%H', timestamp)` — la misma consulta que usa `/api/estado` internamente. Se deja como ejemplo para no exponer datos de estudiantes reales en un repositorio público.
 
-> **Para reemplazar con datos reales:** conecta esta celda a `rfid.db` con `sqlite3`/`pandas`
-> y agrupa `registros_asistencia` por `strftime('%H', timestamp)` — la misma consulta que usa
-> `/api/estado` internamente. Se deja como ejemplo para no exponer datos de estudiantes reales
-> en un repositorio público.
+**Lo que el dashboard *no* incluye actualmente** (áreas de oportunidad, ver [sección 14](#14)): analítica histórica por semana/mes/semestre, reportes por grupo o carrera, y modelos predictivos de asistencia.
 
-**Lo que el dashboard *no* incluye actualmente** (áreas de oportunidad, ver
-[sección 14](#14)): analítica histórica por semana/mes/semestre, reportes por grupo o carrera,
-y modelos predictivos de asistencia.
+### 9.1 Métricas del dashboard — cálculo y consulta SQL
 
+Todas las métricas provienen de un único endpoint, `GET /api/estado` (`dashboard/app_dashboard.py`), que se consulta cada `POLL_STATS_MS` (5000 ms, ver §9.3). Cada métrica corresponde a una clave del JSON que devuelve.
 
+**`stats.entradas_hoy`** — tarjetas mostradas: "ACEPTADOS"
+```sql
+SELECT COUNT(*) AS t FROM registros_asistencia
+WHERE fecha_dia = ? AND tipo_evento IN ('aceptado', 'entrada')
+```
+Cuenta accesos válidos del día. Incluye el valor legado `entrada` junto con `aceptado` — vestigio de una versión anterior del esquema donde el tipo de evento se llamaba distinto (ver también `norm()` en el mismo archivo, que hace la misma normalización del lado del backend). **`stats.ya_escaneados`** — calculado, **no se muestra actualmente en la interfaz**
+```sql
+SELECT COUNT(*) AS t FROM registros_asistencia
+WHERE fecha_dia = ? AND tipo_evento IN ('ya_escaneado')
+```
+El backend la calcula y la incluye en la respuesta JSON, pero no existe ningún `stat-blk` en `dashboard.html` que la lea — es una métrica disponible para usar como ejemplo de personalización (ver §9.4).
+
+**`stats.rebotes_hoy`** — tarjeta mostrada: "REBOTES"
+```sql
+SELECT COUNT(*) AS t FROM registros_asistencia
+WHERE fecha_dia = ? AND tipo_evento IN ('rebote', 'desconocido')
+```
+
+**`stats.tarjetas_activas`** — tarjeta mostrada: "ACTIVAS"
+```sql
+SELECT COUNT(*) AS t FROM tarjetas WHERE activa = 1
+```
+Única métrica que no filtra por fecha — es un conteo del estado actual de la tabla `tarjetas`, no un conteo de eventos del día.
+
+**`uid_repetidos`** — calculado, **sin elemento visual conectado en la UI actual**
+```sql
+SELECT ra.uid, COUNT(*) AS veces,
+       COALESCE(e.nombre || ' ' || COALESCE(e.apellido_paterno,''), '') AS nombre
+FROM registros_asistencia ra
+LEFT JOIN estudiantes e ON ra.id_estudiante = e.id
+WHERE fecha_dia = ? AND tipo_evento IN ('aceptado', 'entrada')
+GROUP BY ra.uid
+HAVING COUNT(*) > 1
+ORDER BY veces DESC
+LIMIT 10
+```
+Top 10 UIDs con más de un `aceptado` en el día. El CSS del proyecto ya incluye estilos completos para esto (`.rep-list`, `.rep-item`, `.rep-uid`, `.rep-count`), lo que sugiere que este panel existió o está planeado, pero en la versión actual de `dashboard.html` no hay un contenedor `id="..."` que la reciba ni código JS que la procese — el dato llega al navegador en cada respuesta de `/api/estado` y simplemente no se usa.
+
+**`eventos`** — panel "HISTORIAL" (derecha)
+```sql
+SELECT ra.id, ra.uid, ra.timestamp, ra.tipo_evento AS tr,
+       COALESCE(ra.mensaje, '') AS mensaje,
+       e.nombre, e.apellido_paterno, e.matricula, e.carrera, e.foto
+FROM registros_asistencia ra
+LEFT JOIN estudiantes e ON ra.id_estudiante = e.id
+WHERE fecha_dia = ?
+ORDER BY ra.timestamp DESC, ra.id DESC
+LIMIT 30
+```
+Los últimos 30 eventos del día (de cualquier tipo). El backend solo manda 30; el frontend (`MAX_LOG_ROWS = 6`) muestra nada más los 6 más recientes en pantalla, descartando el resto — los 30 existen como margen para que `syncLog()` (ver §9.3) pueda detectar cuáles ya se mostraron sin tener que volver a pedirlos.
+
+**`hourly`** — gráfica "ACCESOS HOY"
+```sql
+SELECT CAST(strftime('%H', timestamp) AS INTEGER) AS h, COUNT(*) AS cnt
+FROM registros_asistencia
+WHERE fecha_dia = ? AND tipo_evento IN ('aceptado', 'entrada')
+GROUP BY h
+```
+El resultado (un diccionario `hora → conteo`, con huecos donde no hubo accesos) se completa en Python a un arreglo de 24 posiciones antes de mandarlo al frontend:
+```python
+horas_map = {r['h']: r['cnt'] for r in horas_raw}
+hourly = [horas_map.get(h, 0) for h in range(24)]
+```
+Así el frontend siempre recibe exactamente 24 valores (índice = hora), incluidas las horas con 0 accesos, sin tener que rellenar huecos del lado del JavaScript.
+
+**`reader_ok`** — indicador "LECTOR ACTIVO / INACTIVO"
+```python
+subprocess.run(['systemctl', 'is-active', 'rfid-reader'], timeout=2)
+```
+No es una consulta SQL — es una llamada a `systemctl` con timeout de 2 segundos, envuelta en `try/except` (si falla por cualquier motivo, `reader_ok` queda en `False`). Esta es la misma operación que se identificó como uno de los puntos más lentos del sistema en §8.2.
+
+---
+
+### 9.2 Estructura del código que dibuja la gráfica de horas
+
+**No hay `<canvas>`.** El elemento base es un `<div id="hourly-bars">` vacío en el HTML, que `renderHourlyChart()` llena dinámicamente con un `<div>` por cada una de las 24 horas:
+
+```javascript
+function renderHourlyChart(hourly){
+    const c = document.getElementById('hourly-bars');
+    if (!c || !hourly) return;
+    const max = Math.max(...hourly, 1);        // evita división entre 0
+    const cur = new Date().getHours();
+    c.innerHTML = hourly.map((v, h) => {
+        const pct = (v / max) * 96;             // escala a 96px de alto máx.
+        const ht  = Math.max(pct, v > 0 ? 4 : 1); // barra mínima visible
+        const bg  = h === cur ? 'var(--sky)'
+                  : v > 0     ? 'var(--sky-25)'
+                  :             'var(--brd2)';
+        return `<div class="hbar${h===cur?' current':''}"
+                     title="${p(h)}:00 — ${v} acceso${v!==1?'s':''}">
+                    <div class="hbar-fill" style="height:${ht}px;background:${bg}"></div>
+                </div>`;
+    }).join('');
+}
+```
+
+| Parte | Qué hace |
+|---|---|
+| `Math.max(...hourly, 1)` | Calcula el valor más alto del día para normalizar todas las barras a una escala común; el `, 1` evita `division por 0` si todavía no hay ningún escaneo. |
+| `pct = (v / max) * 96` | Convierte el conteo de esa hora a una altura en píxeles, proporcional al máximo del día (96px es el alto máximo definido en CSS para `.hourly-bars`). |
+| `Math.max(pct, v > 0 ? 4 : 1)` | Altura mínima: 4px si hubo al menos un evento (para que sea visible aunque sea muy bajo comparado con el pico del día), 1px si no hubo ninguno (línea casi invisible, no un hueco vacío). |
+| `h === cur` | Resalta la hora actual con un color distinto (`var(--sky)`, azul sólido) frente a horas pasadas con datos (`var(--sky-25)`, azul tenue) y horas sin datos (`var(--brd2)`, gris de borde). |
+| `title="..."` | *Tooltip* nativo del navegador (atributo HTML `title`) al pasar el mouse — no requiere JavaScript adicional para mostrarlo. |
+
+**Cómo llegan los datos vía AJAX:** `renderHourlyChart(data.hourly)` se
+llama dentro de `updateStats()` (ver §9.3), que hace `fetch('/api/estado')`
+cada 5 segundos — la gráfica completa se reconstruye desde cero
+(`c.innerHTML = ...`) en cada actualización, no se anima barra por barra ni
+se actualiza incrementalmente.
+
+---
+
+### 9.3 AJAX — cómo se obtienen los datos (`fetch`, no `XMLHttpRequest`)
+
+El proyecto usa la API `fetch()` nativa (no jQuery ni `XMLHttpRequest`
+manual), con dos ciclos de sondeo independientes definidos al inicio del
+`<script>`:
+
+```javascript
+const POLL_NEW_EVENT_MS = 800;   // sondeo rápido
+const POLL_STATS_MS     = 5000;  // sondeo de métricas agregadas
+```
+
+**Sondeo rápido — `checkNewEvents()`, cada 800 ms:**
+```javascript
+async function checkNewEvents(){
+    if (scanCooldown) return;               // pausa mientras el modal está abierto
+    try {
+        const res  = await fetch('/api/ultimo-evento');
+        const data = await res.json();
+        if (!data.success || !data.evento) return;
+        const eventId = `${data.evento.uid}-${data.evento.timestamp}`;
+        if (eventId !== lastEventId) {       // ¿es un evento que no habíamos visto?
+            lastEventId = eventId;
+            showModal(data.evento);           // dispara el modal + sonido + glow
+            if (!loggedIds.has(data.evento.id)) {
+                loggedIds.add(data.evento.id);
+                addEventToLog(data.evento);
+            }
+        }
+    } catch(e) {}
+}
+```
+Consulta `/api/ultimo-evento` (que solo trae el evento más reciente, una
+consulta ligera) y compara su identificador compuesto (`uid-timestamp`)
+contra el último visto. Si cambió, dispara el modal de pantalla completa.
+El `if (scanCooldown) return` evita hacer la petición mientras el modal
+anterior sigue abierto — no tiene sentido revisar por eventos nuevos si de
+todas formas no se va a mostrar nada hasta que cierre el actual.
+
+**Sondeo de métricas — `updateStats()`, cada 5000 ms:**
+```javascript
+async function updateStats(){
+    try {
+        const res  = await fetch('/api/estado');
+        const data = await res.json();
+        if (!data.success) return;
+        document.getElementById('stat-entradas').textContent = data.stats.entradas_hoy;
+        document.getElementById('stat-activas').textContent  = data.stats.tarjetas_activas;
+        document.getElementById('stat-rebotes').textContent  = data.stats.rebotes_hoy;
+        syncLog(data.eventos);
+        renderHourlyChart(data.hourly);
+        updateReaderStatus(data.reader_ok);
+    } catch(e) { console.error('Stats error:', e); }
+}
+```
+Actualiza los tres contadores numéricos del panel izquierdo, sincroniza el
+historial (`syncLog`, que solo agrega al log los eventos con `id` que
+todavía no están en `loggedIds` — evita duplicados si el sondeo rápido ya
+agregó ese mismo evento), redibuja la gráfica de horas, y actualiza el
+punto verde/rojo del estado del lector.
+
+**Por qué dos ciclos separados en vez de uno solo:** el sondeo rápido
+(800 ms) solo pide `/api/ultimo-evento`, una consulta de una sola fila
+(`ORDER BY timestamp DESC LIMIT 1`) — barata de ejecutar con esa frecuencia.
+El sondeo de métricas (5000 ms) dispara varias agregaciones más pesadas
+(conteos, `GROUP BY` por hora, y la llamada a `systemctl` identificada como
+lenta en §8.2) — correrlas cada 800 ms sería un desperdicio de recursos en
+la Raspberry Pi sin beneficio real, ya que números como "tarjetas activas"
+no cambian de un instante a otro.
+
+**Arranque de ambos ciclos** (al final del `<script>`):
+```javascript
+updateStats();
+setInterval(updateStats, POLL_STATS_MS);
+setInterval(checkNewEvents, POLL_NEW_EVENT_MS);
+```
+
+---
+
+### 9.4 Personalización del dashboard
+
+**a) Cambiar colores**
+
+Todos los colores están centralizados como variables CSS en `:root`, al
+inicio del `<style>` de `dashboard.html` — no hay colores sueltos
+*hardcodeados* en el resto del CSS (usan `var(--nombre)`):
+
+```css
+:root {
+  --tecnm:#11366A;      /* azul institucional TecNM */
+  --itsoeh-t:#00828A;   /* teal ITSOEH — usado para "activo/en vivo" */
+  --sky:#2297D3;        /* azul principal — eventos "aceptado" */
+  --crimson:#8F162E;    /* rojo — eventos "rebote" */
+  --amber:#E8A020;      /* ámbar — eventos "ya_escaneado" */
+  --bg:#05090F;         /* fondo general (modo oscuro) */
+  /* ... */
+}
+```
+Cambiar, por ejemplo, `--sky` a otro tono de azul actualiza automáticamente
+el glow del panel central, el badge del modal, las barras de la gráfica
+horaria resaltadas, y el color de "ACEPTADOS" — todo a la vez, sin tocar
+más CSS.
+
+**b) Añadir una nueva métrica** (ejemplo concreto: mostrar `ya_escaneados`,
+que ya se calcula en el backend pero no se muestra — ver §9.1)
+
+1. En el HTML, agregar un bloque igual a los existentes en `.lp` (panel
+   izquierdo), junto a los tres `stat-blk` actuales:
+```html
+<div class="stat-blk st-amber">
+    <div class="stat-num-wrap"><div class="stat-num" id="stat-ya-escaneados">0</div></div>
+    <div class="stat-meta">
+        <div class="stat-name">REPETIDOS</div>
+        <div class="stat-desc">Ya escaneados hoy</div>
+    </div>
+</div>
+```
+2. En `updateStats()`, agregar una línea junto a las otras tres:
+```javascript
+document.getElementById('stat-ya-escaneados').textContent = data.stats.ya_escaneados;
+```
+No hace falta tocar `app_dashboard.py` — el dato ya viaja en la respuesta
+de `/api/estado`, solo faltaba consumirlo.
+
+**Para una métrica que SÍ requiere backend nuevo** (ejemplo: total de
+estudiantes inactivos), el patrón es:
+1. Agregar la consulta en `api_estado()`, dentro del diccionario `stats`:
+   `'inactivos': conn.execute("SELECT COUNT(*) AS t FROM estudiantes WHERE estado='inactivo'").fetchone()['t']`
+2. Repetir los pasos (a) y (b) de arriba en el frontend.
+
+**c) Cambiar el intervalo de refresco**
+
+Ambos intervalos están en dos constantes al inicio del `<script>` — cambiar
+el número y listo, no hay que tocar el resto del código:
+
+```javascript
+const POLL_NEW_EVENT_MS = 800;   // bajar a 400 = más responsivo, más peticiones/seg
+const POLL_STATS_MS     = 5000;  // subir a 10000 = menos carga, métricas menos frescas
+```
+
+**Consideraciones antes de bajar `POLL_NEW_EVENT_MS`:** cada tick hace un
+`fetch()` HTTP completo — bajarlo mucho (ej. a 200ms) multiplica la carga
+sobre `rfid-dashboard.service` sin necesariamente mejorar la experiencia,
+ya que el propio lector solo escanea cada `POLL_S = 0.15s` (§4) y aplica
+`DEBOUNCE_S = 2s` — no tiene sentido que el frontend consulte más rápido de
+lo que físicamente puede cambiar el dato en la base de datos.
+
+**Consideraciones antes de subir `POLL_STATS_MS` demasiado:** el punto lento
+identificado en §8.2 (`systemctl is-active`) se ejecuta una vez por cada
+tick de este intervalo — subirlo (ej. a 15000ms) reduce esa carga, a costa
+de que el indicador "LECTOR ACTIVO/INACTIVO" tarde más en reflejar un
+cambio real de estado del servicio.
 <a id="10"></a>
 ## 10. Procesamiento de datos
 
