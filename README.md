@@ -1745,6 +1745,7 @@ curl -s -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
 
 > **Nota:** esta documentación se generó leyendo directamente `app_crud.py`. Si el archivo cambia — nuevos endpoints, nuevos parámetros, cambios en las respuestas — esta sección debe regenerarse contra el código actualizado para no quedar desincronizada.
 
+<a id="8"></a>
 ## 8. Flujo de datos de extremo a extremo
 [[Volver a la tabla de contenido]](#toc)
 
@@ -2224,31 +2225,34 @@ de que el indicador "LECTOR ACTIVO/INACTIVO" tarde más en reflejar un
 cambio real de estado del servicio.
 
 <a id="10"></a>
+## 10. Procesamiento de datos
+[[Volver a la tabla de contenido]](#toc)
 
-10. Procesamiento de datos
+El sistema **no implementa un pipeline ETL** en el sentido clásico: no hay un proceso batch que extraiga, transforme y cargue datos entre sistemas. Todo el procesamiento es inserción directa (lector) o consulta directa (CRUD/dashboard) contra `rfid.db`. Las dos únicas formas de "transformación" que existen son la **exportación bajo demanda a CSV** y las **migraciones incrementales de esquema**, ambas cubiertas a detalle abajo.
 
-El sistema no implementa un pipeline ETL en el sentido clásico: no hay un proceso batch que extraiga, transforme y cargue datos entre sistemas. Todo el procesamiento es inserción directa (lector) o consulta directa (CRUD/dashboard) contra rfid.db. Las dos únicas formas de "transformación" que existen son la exportación bajo demanda a CSV y las migraciones incrementales de esquema, ambas cubiertas a detalle a continuación.
+| Endpoint | Salida |
+|---|---|
+| `/api/export/estudiantes` | CSV con datos completos de estudiantes |
+| `/api/export/registros` | CSV de asistencia filtrable por fecha |
 
-Endpoint	Salida
-/api/export/estudiantes	CSV con datos completos de estudiantes
-/api/export/registros	CSV de asistencia filtrable por fecha
-10.1 Exportación a CSV — streaming con stream_with_context
+### 10.1 Exportación a CSV — streaming con `stream_with_context`
 
-Ambos endpoints de exportación comparten el mismo patrón: una función generadora (generar()) que produce el CSV línea por línea, envuelta en stream_with_context para que Flask la transmita al cliente conforme se genera, en vez de construir el archivo completo en memoria antes de responder.
+Ambos endpoints de exportación comparten el mismo patrón: una función generadora (`generar()`) que produce el CSV línea por línea, envuelta en `stream_with_context` para que Flask la transmita al cliente conforme se genera, en vez de construir el archivo completo en memoria antes de responder.
 
-Función base — construcción de cada línea (_csv_line)
+**Construcción de cada línea:**
 
-python
+```python
 def _csv_line(campos):
     buf = io.StringIO()
     csv.writer(buf).writerow(campos)
     return buf.getvalue()
+```
 
-Usa el módulo estándar csv sobre un buffer en memoria (io.StringIO) por cada línea, en vez de concatenar strings manualmente — así se heredan gratis las reglas de escapado de CSV (comillas cuando un campo contiene comas, saltos de línea o comillas internas), sin tener que reimplementarlas.
+Usa el módulo estándar `csv` sobre un buffer en memoria (`io.StringIO`) por cada línea, en vez de concatenar strings manualmente — así se heredan gratis las reglas de escapado de CSV (comillas cuando un campo contiene comas, saltos de línea o comillas internas).
 
-Neutralización de inyección de fórmulas (_csv_safe)
+**Neutralización de inyección de fórmulas:**
 
-python
+```python
 def _csv_safe(value):
     if value is None:
         return value
@@ -2256,167 +2260,14 @@ def _csv_safe(value):
     if s and s[0] in ('=', '+', '-', '@'):
         return "'" + s
     return value
+```
 
-Se aplica a todo campo de texto que provenga de datos capturados por un usuario (nombre, apellidos, correo, grupo, mensaje) — nunca a campos numéricos o controlados por el sistema (id, timestamp, matrícula). Si el primer carácter coincide con uno de los que Excel/Sheets interpretan como inicio de fórmula, se antepone una comilla simple, forzando que la celda se lea como texto plano.
+Se aplica solo a campos de texto capturados por un usuario (nombre, apellidos, correo, grupo, mensaje) — nunca a campos numéricos o controlados por el sistema (`id`, `timestamp`, `matrícula`). Si el primer carácter coincide con uno de los que Excel/Sheets interpretan como inicio de fórmula, se antepone una comilla simple para forzar lectura como texto plano.
 
-GET /api/export/estudiantes
+<details>
+<summary><strong>Ver código completo — <code>GET /api/export/estudiantes</code></strong></summary>
 
-python
-@app.route('/api/export/estudiantes')
-def export_estudiantes():
-    conn = get_db()
-    cur  = conn.execute("SELECT id,nombre,apellido_paterno,apellido_materno,matricula,semestre,COALESCE(grupo,'') AS grupo,correo,estado FROM estudiantes WHERE carrera=? ORDER BY CAST(semestre AS INTEGER), apellido_paterno", (CARRERA,))
-    def generar():
-        try:
-            yield '\ufeff'
-            yield _csv_line(['ID','Nombre','Ap. Paterno','Ap. Materno','Matrícula','Semestre','Grupo','Correo','Estado'])
-            while True:
-                lote = cur.fetchmany(100)
-                if not lote:
-                    break
-                for r in lote:
-                    yield _csv_line([
-                        r['id'],
-                        _csv_safe(r['nombre']),
-                        _csv_safe(r['apellido_paterno']),
-                        _csv_safe(r['apellido_materno']),
-                        r['matricula'],
-                        r['semestre'],
-                        _csv_safe(r['grupo']),
-                        _csv_safe(r['correo']),
-                        r['estado'],
-                    ])
-        finally:
-            conn.close()
-    return Response(stream_with_context(generar()), mimetype='text/csv; charset=utf-8', headers={'Content-Disposition': 'attachment; filename=estudiantes_itics.csv'})
-
-GET /api/export/registros sigue el mismo patrón, con un LEFT JOIN hacia estudiantes (para no perder registros cuyo estudiante fue eliminado, ver §6.4-g) y filtrado por fecha:
-
-python
-@app.route('/api/export/registros')
-def export_registros():
-    conn = get_db(); s = schema(conn)
-    fecha = request.args.get('fecha', datetime.now().strftime('%Y-%m-%d'))
-    cur = conn.execute(f"""
-        SELECT ra.id, ra.timestamp, ra.{s['col']} AS tipo, ra.uid, COALESCE(ra.mensaje,'') AS mensaje,
-               COALESCE(e.nombre||' '||COALESCE(e.apellido_paterno,''),'DESCONOCIDO') AS nombre,
-               COALESCE(e.matricula,'') AS matricula, COALESCE(CAST(e.semestre AS TEXT),'') AS semestre, COALESCE(e.grupo,'') AS grupo
-        FROM registros_asistencia ra LEFT JOIN estudiantes e ON ra.id_estudiante=e.id
-        WHERE {s['ff']} AND (e.carrera=? OR e.id IS NULL) ORDER BY ra.timestamp
-    """, (fecha, CARRERA))
-    def generar():
-        try:
-            yield '\ufeff'
-            yield _csv_line(['ID','Timestamp','Tipo','UID','Nombre','Matrícula','Semestre','Grupo','Mensaje'])
-            while True:
-                lote = cur.fetchmany(100)
-                if not lote:
-                    break
-                for r in lote:
-                    yield _csv_line([
-                        r['id'], r['timestamp'], r['tipo'], r['uid'],
-                        _csv_safe(r['nombre']),
-                        r['matricula'], r['semestre'],
-                        _csv_safe(r['grupo']),
-                        r['mensaje'],
-                    ])
-        finally:
-            conn.close()
-    return Response(stream_with_context(generar()), mimetype='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=registros_itics_{fecha}.csv'})
-
-Por qué fetchmany(100) en vez de fetchall() o de iterar el cursor directo: traer todos los renglones con fetchall() cargaría el resultado completo en memoria antes de empezar a responder — exactamente lo que stream_with_context busca evitar. Iterar el cursor renglón por renglón (for r in cur:) también sería viable, pero paginar en lotes de 100 reduce el número de viajes a SQLite manteniendo el consumo de memoria acotado a un lote a la vez, un punto intermedio razonable dado el volumen esperado (§6.6: cientos a miles de registros por consulta, no millones).
-
-Por qué el try/finally alrededor del yield: la conexión (conn) se abre antes de crear el generador pero solo se cierra dentro de finally, que se ejecuta cuando el generador se agota (todas las filas enviadas) o cuando el cliente cierra la conexión a mitad de la descarga (Flask cancela la iteración del generador) — en ambos casos la conexión a SQLite queda liberada correctamente, sin depender de que el Response termine de forma "limpia".
-
-El BOM (\ufeff) como primer elemento generado, antes incluso de la fila de encabezados, es lo que permite que Excel detecte la codificación UTF-8 y muestre los acentos correctamente sin pedir al usuario que elija la codificación manualmente al abrir el archivo.
-
-10.2 Migraciones de esquema — aplicación, versionado y ejemplo real
-
-Las migraciones no usan una herramienta dedicada (Alembic, Flask-Migrate o similar) ni llevan un número de versión formal registrado en una tabla schema_version — el "versionado" es implícito: cada sentencia usa ALTER TABLE/CREATE TABLE IF NOT EXISTS/CREATE INDEX IF NOT EXISTS, formas que fallan de manera controlada (o no hacen nada) si ya se aplicaron antes, lo que hace que ejecutar /api/migrate repetidamente sobre una base ya migrada sea seguro por diseño, en vez de depender de que el sistema recuerde qué ya se aplicó.
-
-Función completa (migrate)
-
-python
-@app.route('/api/migrate', methods=['POST'])
-def migrate():
-    if not ALLOW_HTTP_MIGRATIONS:
-        log.warning("Intento de acceso a /api/migrate con ALLOW_HTTP_MIGRATIONS deshabilitada.")
-        abort(404)
-    conn = get_db(); results = []
-    try:
-        for sql in ["ALTER TABLE estudiantes ADD COLUMN grupo TEXT DEFAULT ''",
-                    "ALTER TABLE registros_asistencia ADD COLUMN fecha_dia TEXT",
-                    """CREATE TABLE IF NOT EXISTS audit_log (
-                           id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                           timestamp TEXT    NOT NULL,
-                           ip        TEXT,
-                           accion    TEXT    NOT NULL,
-                           detalle   TEXT,
-                           resultado TEXT    NOT NULL
-                       )""",
-                    "CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp)"]:
-            try:
-                conn.execute(sql); results.append({'sql': sql, 'ok': True})
-            except sqlite3.OperationalError as e:
-                results.append({'sql': sql, 'ok': False, 'msg': str(e)})
-        conn.commit()
-        _schema_cache.clear()
-    finally:
-        conn.close()
-    return jsonify({'success': True, 'results': results})
-
-Cómo se aplican: las cuatro sentencias viven como una lista literal dentro de la función, en el orden en que deben ejecutarse. El endpoint las recorre una por una dentro de su propio try/except sqlite3.OperationalError individual — así, si la primera sentencia falla porque la columna grupo ya existe (caso típico al volver a correr la migración), eso no interrumpe la ejecución de las tres siguientes. Al final se hace un único conn.commit() para todas las que sí tuvieron efecto, y se limpia _schema_cache (la caché en memoria que usa schema() para saber qué columnas existen, referenciada en export_registros como s['col']/s['ff']) para que el resto de la aplicación detecte el nuevo esquema sin necesidad de reiniciar el servicio.
-
-Cómo se "versionan": no hay una tabla que registre qué migración corresponde a qué versión del código — el propio código es la fuente de verdad: la lista de sentencias en migrate() refleja el estado actual esperado del esquema. Añadir una columna nueva en el futuro implica simplemente agregar una sentencia más a la lista (y, en paralelo, añadirla también a init_db.py para que una instalación nueva desde cero ya nazca con ella — evitando que init_db.py y migrate() diverjan). No hay forma automática de revertir (down migration); un rollback de esquema se resolvería restaurando un respaldo anterior de rfid.db (§6.5-b), no revirtiendo sentencias SQL.
-
-Ejemplo real de una migración ya aplicada — de dónde salió audit_log: cuando se agregó la funcionalidad de bitácora administrativa (§7 y §11), el esquema original de init_db.py no contemplaba esa tabla. En vez de recrear rfid.db desde cero (perdiendo estudiantes, tarjetas e historial de asistencia ya acumulado), la tabla y su índice se añadieron como las dos últimas entradas de la lista de migrate(), y el flujo real seguido en producción fue el documentado en §6.5-c: habilitar temporalmente ALLOW_HTTP_MIGRATIONS, respaldar rfid.db, disparar POST /api/migrate una sola vez, y deshabilitar el flag de inmediato. Las dos primeras sentencias de esa misma lista (grupo en estudiantes, fecha_dia en registros_asistencia) corresponden a una migración anterior, aplicada de la misma forma en un momento previo del desarrollo — hoy conviven en la misma lista porque, al ya no fallar (las columnas y la tabla existen), simplemente no producen ningún cambio en instalaciones ya actualizadas, y no hay necesidad práctica de retirarlas del código.
-
-Hazlo pero de manera que sea para un readme de github
-
-Pensó durante 5s
-
-Aquí está la misma sección, adaptada a formato README de GitHub (bloques de código con syntax highlighting explícito, <details> para el código extenso que no conviene mostrar siempre expandido, y sin referencias a celdas de notebook):
-
-<a id="10"></a>
-
-10. Procesamiento de datos
-
-[Volver a la tabla de contenido]
-
-El sistema no implementa un pipeline ETL en el sentido clásico: no hay un proceso batch que extraiga, transforme y cargue datos entre sistemas. Todo el procesamiento es inserción directa (lector) o consulta directa (CRUD/dashboard) contra rfid.db. Las dos únicas formas de "transformación" que existen son la exportación bajo demanda a CSV y las migraciones incrementales de esquema, ambas cubiertas a detalle abajo.
-
-Endpoint	Salida
-/api/export/estudiantes	CSV con datos completos de estudiantes
-/api/export/registros	CSV de asistencia filtrable por fecha
-10.1 Exportación a CSV — streaming con stream_with_context
-
-Ambos endpoints de exportación comparten el mismo patrón: una función generadora (generar()) que produce el CSV línea por línea, envuelta en stream_with_context para que Flask la transmita al cliente conforme se genera, en vez de construir el archivo completo en memoria antes de responder.
-
-Construcción de cada línea:
-
-python
-def _csv_line(campos):
-    buf = io.StringIO()
-    csv.writer(buf).writerow(campos)
-    return buf.getvalue()
-
-Usa el módulo estándar csv sobre un buffer en memoria (io.StringIO) por cada línea, en vez de concatenar strings manualmente — así se heredan gratis las reglas de escapado de CSV (comillas cuando un campo contiene comas, saltos de línea o comillas internas).
-
-Neutralización de inyección de fórmulas:
-
-python
-def _csv_safe(value):
-    if value is None:
-        return value
-    s = str(value)
-    if s and s[0] in ('=', '+', '-', '@'):
-        return "'" + s
-    return value
-
-Se aplica solo a campos de texto capturados por un usuario (nombre, apellidos, correo, grupo, mensaje) — nunca a campos numéricos o controlados por el sistema (id, timestamp, matrícula). Si el primer carácter coincide con uno de los que Excel/Sheets interpretan como inicio de fórmula, se antepone una comilla simple para forzar lectura como texto plano.
-
-<details> <summary><strong>Ver código completo — <code>GET /api/export/estudiantes</code></strong></summary>
-python
+```python
 @app.route('/api/export/estudiantes')
 def export_estudiantes():
     conn = get_db()
@@ -2454,8 +2305,14 @@ def export_estudiantes():
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': 'attachment; filename=estudiantes_itics.csv'}
     )
-</details> <details> <summary><strong>Ver código completo — <code>GET /api/export/registros</code></strong></summary>
-python
+```
+
+</details>
+
+<details>
+<summary><strong>Ver código completo — <code>GET /api/export/registros</code></strong></summary>
+
+```python
 @app.route('/api/export/registros')
 def export_registros():
     conn = get_db(); s = schema(conn)
@@ -2492,19 +2349,24 @@ def export_registros():
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename=registros_itics_{fecha}.csv'}
     )
+```
+
 </details>
 
-Notas de diseño:
+**Notas de diseño:**
 
-fetchmany(100) en vez de fetchall(): traer todos los renglones de golpe cargaría el resultado completo en memoria antes de responder — justo lo que stream_with_context busca evitar. Paginar en lotes de 100 mantiene el consumo de memoria acotado sin multiplicar demasiado los viajes a SQLite.
-try/finally alrededor del yield: garantiza que conn se cierre tanto si el generador se agota normalmente como si el cliente cancela la descarga a mitad de camino.
-BOM (\ufeff) como primer byte emitido: permite que Excel detecte UTF-8 automáticamente y muestre los acentos sin que el usuario tenga que elegir la codificación manualmente al abrir el archivo.
-10.2 Migraciones de esquema — aplicación, versionado y ejemplo real
+- **`fetchmany(100)` en vez de `fetchall()`:** traer todos los renglones de golpe cargaría el resultado completo en memoria antes de responder — justo lo que `stream_with_context` busca evitar. Paginar en lotes de 100 mantiene el consumo de memoria acotado sin multiplicar demasiado los viajes a SQLite.
+- **`try/finally` alrededor del `yield`:** garantiza que `conn` se cierre tanto si el generador se agota normalmente como si el cliente cancela la descarga a mitad de camino.
+- **BOM (`\ufeff`) como primer byte emitido:** permite que Excel detecte UTF-8 automáticamente y muestre los acentos sin que el usuario tenga que elegir la codificación manualmente al abrir el archivo.
 
-Las migraciones no usan una herramienta dedicada (Alembic, Flask-Migrate, etc.) ni una tabla schema_version formal — el versionado es implícito: cada sentencia usa ALTER TABLE / CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS, formas que fallan de manera controlada (o no hacen nada) si ya se aplicaron antes. Esto hace que ejecutar /api/migrate repetidamente sobre una base ya migrada sea seguro por diseño.
+### 10.2 Migraciones de esquema — aplicación, versionado y ejemplo real
 
-<details> <summary><strong>Ver código completo — <code>POST /api/migrate</code></strong></summary>
-python
+Las migraciones **no usan una herramienta dedicada** (Alembic, Flask-Migrate, etc.) ni una tabla `schema_version` formal — el versionado es implícito: cada sentencia usa `ALTER TABLE` / `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, formas que fallan de manera controlada (o no hacen nada) si ya se aplicaron antes. Esto hace que ejecutar `/api/migrate` repetidamente sobre una base ya migrada sea seguro por diseño.
+
+<details>
+<summary><strong>Ver código completo — <code>POST /api/migrate</code></strong></summary>
+
+```python
 @app.route('/api/migrate', methods=['POST'])
 def migrate():
     if not ALLOW_HTTP_MIGRATIONS:
@@ -2532,17 +2394,19 @@ def migrate():
     finally:
         conn.close()
     return jsonify({'success': True, 'results': results})
+```
+
 </details>
 
-Cómo se aplican: las sentencias viven como una lista literal dentro de la función, en el orden en que deben ejecutarse. El endpoint las recorre una por una dentro de su propio try/except sqlite3.OperationalError individual — si la primera sentencia falla porque la columna grupo ya existe (caso típico al re-ejecutar), eso no interrumpe la ejecución de las siguientes. Al final se hace un único conn.commit() y se limpia _schema_cache (la caché en memoria que usa schema() para saber qué columnas existen — referenciada en export_registros como s['col']/s['ff']), para que el resto de la aplicación detecte el nuevo esquema sin reiniciar el servicio.
+**Cómo se aplican:** las sentencias viven como una lista literal dentro de la función, en el orden en que deben ejecutarse. El endpoint las recorre una por una dentro de su propio `try/except sqlite3.OperationalError` individual — si la primera sentencia falla porque la columna `grupo` ya existe (caso típico al re-ejecutar), eso no interrumpe la ejecución de las siguientes. Al final se hace un único `conn.commit()` y se limpia `_schema_cache` (la caché en memoria que usa `schema()` para saber qué columnas existen — referenciada en `export_registros` como `s['col']`/`s['ff']`), para que el resto de la aplicación detecte el nuevo esquema sin reiniciar el servicio.
 
-Cómo se versionan: no hay tabla que registre qué migración corresponde a qué versión del código — el propio código es la fuente de verdad. Añadir una columna nueva a futuro implica agregar una sentencia más a la lista y, en paralelo, añadirla también a init_db.py, para que una instalación nueva desde cero ya nazca con ella y ambos archivos no diverjan. No existe rollback automático (down migration); revertir un cambio de esquema se resuelve restaurando un respaldo anterior de rfid.db (ver §6.5-b), no revirtiendo sentencias SQL.
+**Cómo se versionan:** no hay tabla que registre qué migración corresponde a qué versión del código — el propio código *es* la fuente de verdad. Añadir una columna nueva a futuro implica agregar una sentencia más a la lista **y**, en paralelo, añadirla también a `init_db.py`, para que una instalación nueva desde cero ya nazca con ella y ambos archivos no diverjan. No existe rollback automático (`down migration`); revertir un cambio de esquema se resuelve restaurando un respaldo anterior de `rfid.db` (ver §6.5-b), no revirtiendo sentencias SQL.
 
-Ejemplo real — cómo se agregó audit_log:
+**Ejemplo real — cómo se agregó `audit_log`:**
 
-Cuando se añadió la bitácora administrativa (§7 y §11), el esquema original de init_db.py no la contemplaba. En vez de recrear rfid.db desde cero (perdiendo estudiantes, tarjetas e historial ya acumulado), la tabla y su índice se agregaron como las dos últimas entradas de la lista de migrate(), siguiendo el flujo documentado en §6.5-c:
+Cuando se añadió la bitácora administrativa (§7 y §11), el esquema original de `init_db.py` no la contemplaba. En vez de recrear `rfid.db` desde cero (perdiendo estudiantes, tarjetas e historial ya acumulado), la tabla y su índice se agregaron como las dos últimas entradas de la lista de `migrate()`, siguiendo el flujo documentado en §6.5-c:
 
-bash
+```bash
 # 1. Habilitar temporalmente el feature flag
 echo "ALLOW_HTTP_MIGRATIONS=true" >> /home/admin/rfid-system/.env
 sudo systemctl restart rfid-crud
@@ -2556,8 +2420,9 @@ curl -u admin:CONTRASEÑA -X POST http://127.0.0.1:5001/api/migrate
 # 4. Deshabilitar el feature flag de inmediato
 sed -i '/ALLOW_HTTP_MIGRATIONS/d' /home/admin/rfid-system/.env
 sudo systemctl restart rfid-crud
+```
 
-Las dos primeras sentencias de la lista (grupo en estudiantes, fecha_dia en registros_asistencia) corresponden a una migración anterior, aplicada de la misma forma en un punto previo del desarrollo. Hoy conviven en el mismo arreglo porque, al ya no fallar (columna/tabla existentes), simplemente no producen ningún cambio en instalaciones ya actualizadas — no hay necesidad práctica de retirarlas del código.
+Las dos primeras sentencias de la lista (`grupo` en `estudiantes`, `fecha_dia` en `registros_asistencia`) corresponden a una migración anterior, aplicada de la misma forma en un punto previo del desarrollo. Hoy conviven en el mismo arreglo porque, al ya no fallar (columna/tabla existentes), simplemente no producen ningún cambio en instalaciones ya actualizadas — no hay necesidad práctica de retirarlas del código.
 
 <a id="11"></a>
 ## 11. Registros y bitácoras (logs)
