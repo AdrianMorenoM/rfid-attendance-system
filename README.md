@@ -2222,6 +2222,7 @@ identificado en §8.2 (`systemctl is-active`) se ejecuta una vez por cada
 tick de este intervalo — subirlo (ej. a 15000ms) reduce esa carga, a costa
 de que el indicador "LECTOR ACTIVO/INACTIVO" tarde más en reflejar un
 cambio real de estado del servicio.
+
 <a id="10"></a>
 ## 10. Procesamiento de datos
 
