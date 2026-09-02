@@ -2426,15 +2426,227 @@ Las dos primeras sentencias de la lista (`grupo` en `estudiantes`, `fecha_dia` e
 
 <a id="11"></a>
 ## 11. Registros y bitácoras (logs)
+[[Volver a la tabla de contenido]](#toc)
 
 | Fuente | Ubicación | Rotación |
 |---|---|---|
-| Lector RFID | `shared/reader.log` | `logrotate` (`/etc/logrotate.d/rfid-reader`) |
-| Watchdog de red | `shared/network_watchdog.log` | `logrotate` (`/etc/logrotate.d/network-watchdog`) |
-| Auditoría administrativa | Tabla `audit_log` en `rfid.db` | Sin rotación automática — crece indefinidamente |
+| Lector RFID | `shared/reader.log` | `logrotate` (`/etc/logrotate.d/rfid-reader`) — ver §11.2 |
+| Watchdog de red | `shared/network_watchdog.log` | `logrotate` (`/etc/logrotate.d/network-watchdog`) — ver §11.2 |
+| Auditoría administrativa | Tabla `audit_log` en `rfid.db` | Sin rotación automática — crece indefinidamente, ver §11.2 |
 | Servicios systemd | `journalctl -u <servicio>` | Gestionado por `journald` |
 
 `audit_log` registra acciones administrativas sensibles (ej. reinicios de servicio, apagados) con IP de origen, acción y resultado — clave para trazabilidad ante un incidente.
+
+### 11.1 Estructura de `audit_log` y acciones registradas
+
+Toda inserción pasa por una única función, `_registrar_auditoria()`
+(`crud/app_crud.py`), nunca por `INSERT` directo desde otras partes del
+código — así el formato queda garantizado consistente:
+
+```python
+def _registrar_auditoria(accion: str, detalle: str, resultado: str, ip: str | None = None) -> None:
+    conn = None
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO audit_log (timestamp, ip, accion, detalle, resultado) VALUES (?,?,?,?,?)",
+            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), ip or get_remote_address(), accion, detalle, resultado),
+        )
+        conn.commit()
+    except Exception:
+        log.exception(f"Error registrando auditoría (accion={accion!r})")
+    finally:
+        if conn is not None:
+            conn.close()
+```
+
+`ip` es opcional — si no se pasa explícitamente, toma la IP de la petición
+en curso (`get_remote_address()`). El `try/except Exception` alrededor de
+todo el cuerpo es deliberado: **un fallo al auditar nunca debe tumbar la
+operación que se estaba auditando** — si escribir en `audit_log` falla, el
+error solo queda en `reader.log`/`journalctl`, pero la acción original
+(reiniciar un servicio, restaurar un respaldo) ya se ejecutó y su
+respuesta al cliente sigue siendo normal.
+
+**Acciones que realmente se auditan en el código actual** (columna
+`accion`, valores exactos):
+
+| `accion` | Cuándo se dispara | `resultado` posible |
+|---|---|---|
+| `auth_rate_limited` | Una IP excede el límite de intentos fallidos de Basic Auth (§7.1) — se registra **antes** de responder `429` | `error` |
+| `hardware_system_reboot` | `POST /api/hardware/system/reboot` | `éxito` / `error` |
+| `hardware_system_shutdown` | `POST /api/hardware/system/shutdown` | `éxito` / `error` |
+| `software_database_backup` | `POST /api/software/database/backup` — detalle incluye el nombre del archivo generado | `éxito` |
+| `software_database_restore` | `POST /api/software/database/restore` — detalle incluye el nombre del archivo restaurado | `éxito` |
+| `software_database_backup_delete` | `DELETE /api/software/database/backups/<filename>` | `éxito` |
+| `software_database_purge` | `POST /api/software/database/purge` — se registra **tanto si falla** (no se pudo crear el respaldo de seguridad previo, ver §6.5) **como si tiene éxito** (con el detalle de filtros usados, cantidad eliminada y nombre del respaldo de seguridad) | `éxito` / `error` |
+| `estudiantes_promover` | `POST /api/estudiantes/promover` con `confirmar: true` — detalle incluye criterio usado y cantidad afectada | `éxito` |
+| `estudiantes_baja_masiva` | `POST /api/estudiantes/baja-masiva` con `confirmar: true` — mismo patrón que `promover` | `éxito` |
+
+**Lo que actualmente NO se audita** (para no dar una impresión más
+completa de la que el código tiene): altas/bajas/ediciones individuales de
+estudiantes o tarjetas (`POST`/`PUT`/`DELETE /api/estudiantes`,
+`/api/tarjetas`), start/stop/restart de servicios vía
+`/api/hardware/services/*` (solo el apagado/reinicio de la Raspberry Pi
+completa se audita, no el de servicios individuales), y ningún cambio de
+`ADMIN_PASSWORD` — porque esa variable vive en `.env` (§5.2), no se
+modifica desde ninguna ruta de la API.
+
+**Ejemplos reales de renglones** (`GET /api/audit-log`, ver §7.12):
+
+```json
+{
+  "timestamp": "2026-08-27 09:14:02",
+  "ip": "192.168.1.140",
+  "accion": "software_database_purge",
+  "detalle": "filtros={'fecha_hasta': '2025-12-31'}; eliminados=14832; safety_backup=rfid_backup_20260827_091401.db",
+  "resultado": "éxito"
+}
+```
+```json
+{
+  "timestamp": "2026-08-27 09:20:17",
+  "ip": "192.168.1.87",
+  "accion": "auth_rate_limited",
+  "detalle": "IP 192.168.1.87 bloqueada por exceso de intentos fallidos",
+  "resultado": "error"
+}
+```
+```json
+{
+  "timestamp": "2026-08-25 07:55:40",
+  "ip": "192.168.1.140",
+  "accion": "estudiantes_baja_masiva",
+  "detalle": "semestre=9, grupo=A; afectados=28",
+  "resultado": "éxito"
+}
+```
+
+---
+
+### 11.2 Política de retención de logs
+
+**`reader.log` y `network_watchdog.log`** — sí tienen rotación configurada
+vía `logrotate`, con la misma política en ambos archivos:
+
+```
+/home/admin/rfid-system/shared/reader.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
+```
+
+| Directiva | Qué hace |
+|---|---|
+| `weekly` | Rota el archivo una vez por semana (no por tamaño). |
+| `rotate 4` | Conserva 4 rotaciones anteriores — con `weekly`, esto equivale a **~1 mes de historial** antes de que el más antiguo se descarte definitivamente. |
+| `compress` / `delaycompress` | Comprime las rotaciones viejas con gzip, pero retrasa la compresión de la más reciente un ciclo más — así el log recién rotado queda legible sin descomprimir por si hace falta revisarlo de inmediato. |
+| `missingok` | No falla si el archivo no existe todavía (ej. servicio nunca ejecutado). |
+| `notifempty` | No rota si el archivo está vacío — evita generar archivos `.gz` sin contenido. |
+| `copytruncate` | Copia el contenido actual a un archivo rotado y **trunca el original en su lugar**, en vez de moverlo y crear uno nuevo — necesario porque `rfid_reader.py`/`network_watchdog.sh` mantienen el archivo abierto todo el tiempo (no vuelven a abrirlo por sí solos ni escuchan señales de `logrotate` como `SIGHUP`); sin `copytruncate`, seguirían escribiendo al inode viejo ya renombrado, y el archivo nuevo quedaría vacío para siempre. |
+| `su root root` / `su admin admin` | Cada uno rota con el mismo usuario dueño del proceso que escribe ese log (`root` para el lector, `admin` para el watchdog) — evita problemas de permisos al truncar. |
+
+**`audit_log`** — confirmado en el código: **no tiene ninguna rotación ni
+purga automática** (§11.1). Al no ser un archivo sino una tabla SQLite,
+`logrotate` no aplica — necesitaría un mecanismo propio (tarea programada,
+o extender `DatabaseManager.purge()` para incluirla como `target`
+adicional) que **actualmente no existe**. Dado su bajo volumen esperado
+(solo acciones administrativas puntuales, no cada escaneo de tarjeta —
+comparar con el volumen de `registros_asistencia` en §6.6), no es
+urgente, pero conviene tenerlo presente igual que la falta de `VACUUM`
+automático (§6.5-d).
+
+**`journalctl` (systemd)** — la retención la gestiona `journald`, no este
+proyecto. Por defecto en Raspberry Pi OS suele estar limitada por tamaño
+total de disco reservado para logs (configurable en
+`/etc/systemd/journald.conf`, directivas `SystemMaxUse=` /
+`RuntimeMaxUse=`), no por antigüedad — vale la pena revisarlo aparte si el
+espacio en la microSD es limitado (ver §3.2).
+
+**Recomendación de retención sugerida** (no implementada, coherente con la
+estrategia de archivado ya propuesta en §6.6):
+
+| Fuente | Retención actual | Sugerencia |
+|---|---|---|
+| `reader.log` / `network_watchdog.log` | ~1 mes (4 rotaciones semanales) | Suficiente para depuración operativa; ampliar solo si se necesita auditoría de hardware a más largo plazo. |
+| `audit_log` | Indefinida (sin purga) | Exportar y purgar registros con más de 1–2 años, siguiendo el mismo patrón de archivado por ciclo escolar de §6.6 — es una tabla de bajo volumen, no urge, pero conviene no dejarlo "para siempre" sin revisar. |
+
+---
+
+### 11.3 Monitorear logs en tiempo real
+
+**Logs de archivo** (`reader.log`, `network_watchdog.log`) — `tail -f`
+sigue el archivo mientras crece:
+
+```bash
+tail -f /home/admin/rfid-system/shared/reader.log
+```
+
+Para ver ambos a la vez, en una sola terminal, intercalados por línea:
+
+```bash
+tail -f /home/admin/rfid-system/shared/reader.log \
+        /home/admin/rfid-system/shared/network_watchdog.log
+```
+
+`tail -f` sigue el **inode** del archivo abierto en ese momento — si
+`logrotate` ejecuta `copytruncate` mientras `tail -f` está corriendo
+(§11.2), `tail` sigue viendo el mismo inode truncado y continúa
+funcionando sin interrupción (a diferencia de una rotación por
+renombrado/recreación, donde `tail -f` se quedaría "pegado" al archivo
+viejo — por eso el proyecto usa `copytruncate`, ver tabla de §11.2).
+
+**Logs de servicios systemd** — `journalctl -f` es el equivalente para los
+5 servicios (`rfid-reader`, `rfid-crud`, `rfid-dashboard`, `kiosk`,
+`network-watchdog`), ya introducido en §5.3:
+
+```bash
+sudo journalctl -u rfid-reader -f
+```
+
+Seguir **varios servicios a la vez** intercalados por timestamp real
+(útil para correlacionar, por ejemplo, un escaneo del lector con la
+petición correspondiente en el CRUD):
+
+```bash
+sudo journalctl -u rfid-reader -u rfid-crud -u rfid-dashboard -f
+```
+
+Combinaciones frecuentes al depurar:
+
+```bash
+# Últimas 100 líneas sin seguir en vivo (snapshot rápido)
+sudo journalctl -u rfid-crud -n 100 --no-pager
+
+# Solo desde que se reinició el servicio la última vez
+sudo journalctl -u rfid-reader -b --no-pager
+
+# Filtrar por texto mientras se sigue en vivo (grep sobre journalctl -f)
+sudo journalctl -u rfid-crud -f | grep -i "error\|rate_limited"
+
+# Ventana de tiempo específica, útil para reconstruir un incidente
+sudo journalctl -u rfid-reader --since "2026-08-27 07:00" --until "2026-08-27 08:00"
+```
+
+**`audit_log`** no tiene un equivalente de "seguir en vivo" nativo (es una
+tabla SQLite, no un archivo ni un journal) — la forma más cercana es
+consultarla repetidamente vía `GET /api/audit-log` (§7.12) o, en la propia
+Raspberry Pi, con `watch` sobre una consulta directa:
+
+```bash
+watch -n 5 'sqlite3 -header -column shared/rfid.db \
+  "SELECT timestamp, accion, resultado FROM audit_log ORDER BY id DESC LIMIT 10;"'
+```
+
+Esto refresca cada 5 segundos las 10 acciones más recientes — no es
+"tiempo real" en el sentido estricto de `tail -f`, pero es la alternativa
+práctica sin tener que modificar el código para exponer un stream.
 
 <a id="12"></a>
 ## 12. Seguridad
