@@ -2727,6 +2727,390 @@ plt.show()
 3. **Media:** activar `ALLOWED_SUBNET` restringiendo el acceso a la subred institucional.
 4. **Baja:** exigir `confirm` en `/api/hardware/network/restart`, igual que en endpoints similares.
 
+### 12.4 Plan de acción para cada recomendación priorizada
+
+#### a) Alta — TLS delante del puerto 5001 (proxy inverso)
+
+Basic Auth manda las credenciales codificadas en Base64 dentro del header
+`Authorization`, **no cifradas** — cualquiera que capture tráfico en la
+misma red (ej. otro dispositivo en el mismo Wi-Fi) puede decodificarlas
+trivialmente. TLS resuelve esto cifrando toda la conexión, sin tocar el
+código de `app_crud.py`.
+
+**Opción recomendada — Caddy** (configuración mínima, certificados
+automáticos si hay dominio público; certificado autofirmado si es solo red
+local):
+
+```bash
+# 1. Instalar Caddy (repositorio oficial)
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | \
+  sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | \
+  sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+
+# 2. Configurar el Caddyfile
+sudo tee /etc/caddy/Caddyfile > /dev/null <<'EOF'
+# Reemplaza por la IP de la Pi o un dominio si lo tienes
+:5443 {
+    tls internal
+    reverse_proxy 127.0.0.1:5001
+}
+EOF
+
+# 3. Reiniciar Caddy
+sudo systemctl restart caddy
+sudo systemctl enable caddy
+```
+
+Con `tls internal`, Caddy genera un certificado autofirmado — el navegador
+mostrará advertencia de certificado no confiable (normal en red local sin
+dominio público), pero el tráfico ya viaja cifrado. A partir de aquí, todas
+las peticiones deben ir contra `https://<ip-de-la-pi>:5443` en vez de
+`http://<ip>:5001` directo.
+
+**Opción alternativa — nginx + certificado autofirmado:**
+
+```bash
+sudo apt install -y nginx openssl
+
+# Generar certificado autofirmado (válido 1 año)
+sudo mkdir -p /etc/nginx/ssl
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/rfid.key -out /etc/nginx/ssl/rfid.crt \
+  -subj "/CN=rfid-itsoeh.local"
+
+sudo tee /etc/nginx/sites-available/rfid > /dev/null <<'EOF'
+server {
+    listen 5443 ssl;
+    ssl_certificate     /etc/nginx/ssl/rfid.crt;
+    ssl_certificate_key /etc/nginx/ssl/rfid.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:5001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+EOF
+
+sudo ln -s /etc/nginx/sites-available/rfid /etc/nginx/sites-enabled/
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+```
+
+**Importante en ambos casos:** el puerto 5001 (`rfid-crud.service`, ver
+§5.2) sigue escuchando en `0.0.0.0:5001` sin cifrar — el proxy no lo cierra
+por sí solo. Para forzar que todo el tráfico pase por TLS, cambiar el
+`-b` de Gunicorn en `rfid-crud.service` de `0.0.0.0:5001` a
+`127.0.0.1:5001` (ver §5.4), así solo el proxy local puede alcanzarlo, no
+la red externa directamente.
+
+#### b) Alta — rotar `ADMIN_PASSWORD` con `secrets.token_urlsafe`
+
+```bash
+# 1. Generar una contraseña aleatoria criptográficamente segura
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+# Ejemplo de salida: kQ7z_R3mP9vXeYbN2hLdCwA8sT1fJoU6
+
+# 2. Actualizar .env con el nuevo valor
+nano /home/admin/rfid-system/.env
+# Reemplazar la línea ADMIN_PASSWORD=... por el valor generado
+
+# 3. Reiniciar el servicio para que tome el cambio
+sudo systemctl restart rfid-crud
+
+# 4. Verificar que las credenciales viejas ya no funcionan
+curl -s -u admin:admin12345 http://127.0.0.1:5001/api/estadisticas
+# Debe responder 401
+```
+
+`secrets.token_urlsafe(24)` genera 24 bytes de aleatoriedad criptográfica
+(no `random`, que no es seguro para este uso) codificados en base64
+URL-safe — resulta en una cadena de ~32 caracteres, muchísimo más difícil
+de adivinar por fuerza bruta que `admin12345` (ver §12.6 para la política
+completa).
+
+#### c) Media — activar `ALLOWED_SUBNET`
+
+El mecanismo ya existe en el código (`_enforce_ip_allowlist`, visto
+arriba) — solo falta configurar la variable de entorno con la subred real
+de la red institucional:
+
+```bash
+# 1. Averiguar la subred de la red donde vive la Raspberry Pi
+ip addr show | grep "inet "
+# Ejemplo de salida: inet 192.168.1.140/24 ...
+#   → la subred es 192.168.1.0/24
+
+# 2. Agregar (o descomentar) en .env
+echo "ALLOWED_SUBNET=192.168.1.0/24" >> /home/admin/rfid-system/.env
+
+# 3. Reiniciar
+sudo systemctl restart rfid-crud
+
+# 4. Verificar desde un dispositivo DENTRO de esa subred (debe funcionar)
+curl -s -u admin:CONTRASEÑA http://192.168.1.140:5001/api/estadisticas
+
+# 5. Verificar desde fuera de esa subred, si es posible probarlo
+#    (ej. datos móviles con hotspot) — debe responder 403 "Acceso denegado."
+```
+
+Se puede especificar más de una subred separada por comas (el código ya
+soporta `raw.split(',')`), útil si hay VLANs distintas para administrativos
+y para el propio dispositivo del lector:
+
+```bash
+ALLOWED_SUBNET=192.168.1.0/24,192.168.2.0/28
+```
+
+**Antes de activarlo en un sistema ya en uso:** confirmar primero qué IPs
+acceden hoy al panel (revisando `ip` en `audit_log`, ver §11.1, o los logs
+de acceso) para no bloquear por accidente a un administrador legítimo que
+esté en una subred distinta a la esperada.
+
+#### d) Baja — exigir `confirm` en `/api/hardware/network/restart`
+
+A diferencia de las anteriores, esta requiere un cambio de código, no solo
+de configuración. El patrón a replicar ya existe en rutas hermanas como
+`/api/hardware/system/optimize` (que sí exige `confirm` y el header XHR,
+ver §7.1/§7.4) — aplicar el mismo criterio:
+
+```python
+# Antes (app_crud.py, ruta actual):
+@app.route('/api/hardware/network/restart', methods=['POST'])
+@api
+def hardware_network_restart():
+    resultado = _run(['systemctl', 'restart', 'NetworkManager'])
+    return jsonify({'success': resultado['success'], 'result': resultado})
+
+# Después (agregando el mismo patrón que /system/optimize):
+@app.route('/api/hardware/network/restart', methods=['POST'])
+@api
+@require_xhr_header
+def hardware_network_restart():
+    data = request.get_json(silent=True) or {}
+    if not data.get('confirm'):
+        return jsonify({'success': False, 'error': 'Se requiere confirm=true'}), 400
+    resultado = _run(['systemctl', 'restart', 'NetworkManager'])
+    _registrar_auditoria('hardware_network_restart', '', 'éxito' if resultado['success'] else 'error')
+    return jsonify({'success': resultado['success'], 'result': resultado})
+```
+
+De paso, esto también resuelve un hueco de §11.1: hoy `hardware_network_restart`
+**no está en la lista de acciones auditadas** — el cambio de arriba lo
+agrega a `audit_log` igual que `reboot`/`shutdown`.
+
+#### e) Media — fallback SSH con contraseña débil (solo si se usa SSH remoto)
+
+Ya resuelto parcialmente en una sesión anterior de este proyecto: se
+eliminó el valor por defecto inseguro de `RFID_SSH_PASSWORD` (antes
+`'admin'` en el código), forzando que la variable de entorno sea
+obligatoria si `USE_SSH` está activo. Pendiente, si este modo llegara a
+usarse en producción: generar esa contraseña también con
+`secrets.token_urlsafe` (mismo procedimiento que el inciso b) y considerar
+migrar de contraseña a autenticación por llave SSH (`paramiko` ya lo
+soporta vía `key_filename`, evitando contraseñas en `.env` por completo).
+
+---
+
+### 12.5 `hmac.compare_digest` — protección contra *timing attacks*
+
+```python
+def _check_credentials(username, password):
+    try:
+        user_ok = hmac.compare_digest((username or "").encode(), BASIC_AUTH_USER.encode())
+        pass_ok = hmac.compare_digest((password or "").encode(), BASIC_AUTH_PASSWORD.encode())
+    except (TypeError, UnicodeEncodeError):
+        return False
+    return user_ok and pass_ok
+```
+
+**El problema que evita:** una comparación de strings "ingenua" en Python
+(`password == BASIC_AUTH_PASSWORD`) se detiene en cuanto encuentra el
+primer carácter que no coincide — compara carácter por carácter y sale
+apenas hay una diferencia. Esto significa que una contraseña que acierta
+los primeros 3 caracteres tarda (en teoría, medible con suficientes
+muestras) un poquito más en responder "no" que una que falla desde el
+primer carácter. Un atacante que pueda medir esa diferencia de tiempo con
+precisión, repitiendo miles de intentos, podría reconstruir la contraseña
+carácter por carácter — sin necesidad de fuerza bruta completa.
+
+**Cómo lo resuelve `hmac.compare_digest`:** compara **todos** los bytes de
+ambos valores sin importar dónde esté la primera diferencia — el tiempo de
+ejecución es constante respecto al contenido (solo depende de la
+longitud). Así, ya no hay señal temporal que filtrar: acertar o fallar el
+primer carácter tarda estadísticamente lo mismo que acertar o fallar el
+último.
+
+**Detalles de la implementación en este proyecto:**
+
+- Se comparan **usuario y contraseña por separado**, cada uno con su
+  propia llamada a `compare_digest` — evita también filtrar por tiempo si
+  el nombre de usuario es correcto pero la contraseña no (o viceversa).
+- `.encode()` convierte los strings a `bytes` antes de comparar, porque
+  `hmac.compare_digest` requiere que ambos argumentos sean del mismo tipo
+  (`str`+`str` o `bytes`+`bytes`) — aquí se normalizan a bytes.
+- El `try/except (TypeError, UnicodeEncodeError)` cubre el caso de que
+  `username`/`password` lleguen como `None` (Basic Auth ausente) o con
+  caracteres que no se puedan codificar — sin ese `try`, cualquiera de
+  esos casos causaría un `500` en vez de simplemente reportar credenciales
+  inválidas.
+- `user_ok and pass_ok` se evalúa **después** de haber ejecutado ambas
+  comparaciones (no con cortocircuito tipo `if not user_ok: return False`)
+  — importante para no reintroducir una fuga de tiempo entre "el usuario
+  ya falló, ni siquiera reviso la contraseña" vs. "usuario correcto, ahora
+  reviso contraseña".
+
+---
+
+### 12.6 Política de contraseñas
+
+El proyecto actualmente **no impone ninguna validación de complejidad**
+sobre `ADMIN_PASSWORD` — es una variable de entorno de texto libre,
+responsabilidad de quien la configura (de ahí el hallazgo de §12.1 sobre
+`admin12345`). Recomendación concreta, sin necesidad de cambiar código:
+
+**Generación:**
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+`secrets` (no `random`) está diseñado específicamente para valores
+sensibles a seguridad — usa la fuente de aleatoriedad del sistema
+operativo (`os.urandom`), no un generador pseudoaleatorio predecible.
+`token_urlsafe(24)` produce 24 bytes de entropía (192 bits) — muy por
+encima de lo necesario para resistir fuerza bruta incluso con el rate
+limiting ya en su lugar (§12.1, §12.7).
+
+**Buenas prácticas para este proyecto en particular:**
+- No reutilizar `ADMIN_PASSWORD` en ningún otro sistema — si esta Pi se
+  compromete, una contraseña única limita el daño a este sistema.
+- Guardar la contraseña generada en un gestor de contraseñas (no en un
+  documento sin cifrar) — la única copia "oficial" debe vivir en `.env`,
+  que ya está fuera de git (`.gitignore`, ver historial de este README).
+- Rotarla si alguna vez se compartió por un canal inseguro (WhatsApp,
+  correo sin cifrar) durante una entrega de guardia o traspaso del
+  proyecto — no hay indicio de que esto haya ocurrido, es una
+  recomendación preventiva.
+- Aplicar el mismo criterio a `RFID_SSH_PASSWORD` si el modo SSH llegara a
+  usarse (§12.4-e).
+
+---
+
+### 12.7 Pruebas de seguridad — cómo reproducirlas
+
+**a) Confirmar que Basic Auth realmente bloquea sin credenciales**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5001/api/estadisticas
+# Esperado: 401
+```
+
+**b) Probar el rate limiting de intentos fallidos (5/minuto)**
+
+El límite corto (`_AUTH_FAIL_SHORT_LIMIT = 5/minute`) se agota antes que
+el largo (20/15 min) en una prueba rápida — el sexto intento fallido en
+menos de un minuto debe devolver `429`, no `401`:
+
+```bash
+for i in $(seq 1 6); do
+  echo "Intento $i:"
+  curl -s -o /dev/null -w "  HTTP %{http_code}\n" \
+    -u admin:contraseña_incorrecta \
+    http://127.0.0.1:5001/api/estadisticas
+  sleep 1
+done
+```
+
+Salida esperada: los primeros 5 intentos responden `401`, el sexto
+responde `429` con `{"error": "Demasiados intentos fallidos..."}`
+(mensaje definido en `_enforce_basic_auth`, ver también §7.1).
+
+**Nota importante sobre el orden de evaluación:** `_auth_rate_limited(ip)`
+se comprueba **antes** de verificar las credenciales (ver el bloque de
+`_enforce_basic_auth` en §11.1) — es decir, una vez bloqueada la IP, ni
+siquiera intentos con la contraseña **correcta** pasan hasta que expire la
+ventana. Vale la pena probarlo explícitamente para no confundirlo con un
+bloqueo de cuenta:
+
+```bash
+# Después de agotar el límite arriba, probar con la contraseña real:
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -u admin:LA_CONTRASEÑA_REAL \
+  http://127.0.0.1:5001/api/estadisticas
+# Esperado: sigue en 429 hasta que pase la ventana de tiempo
+```
+
+**c) Probar el límite global (60/minuto) con Apache Bench (`ab`)**
+
+`ab` no viene preinstalado en Raspberry Pi OS por defecto:
+
+```bash
+sudo apt install -y apache2-utils
+```
+
+Prueba de carga simple contra un endpoint autenticado (recordar que las
+peticiones autenticadas están exentas del límite global vía
+`_exempt_authenticated_admin_from_global_limit`, así que esta prueba en
+particular hay que hacerla **sin** credenciales para medir el límite
+global real, ya que con credenciales válidas no debería bloquearse nunca
+por este límite):
+
+```bash
+ab -n 100 -c 10 http://127.0.0.1:5001/
+```
+
+`-n 100`: 100 peticiones totales. `-c 10`: 10 concurrentes. Revisar en la
+salida de `ab` cuántas de esas 100 recibieron `429` (columna de códigos de
+respuesta no-2xx) — deberían empezar a aparecer una vez superadas ~60
+peticiones en el minuto de la prueba.
+
+**d) Script en Python para automatizar la prueba de fuerza bruta contra
+Basic Auth** (más control que el `for` de bash, útil para medir tiempos):
+
+```python
+import time
+import requests
+
+URL = "http://127.0.0.1:5001/api/estadisticas"
+INTENTOS = 8
+
+for i in range(1, INTENTOS + 1):
+    t0 = time.perf_counter()
+    r = requests.get(URL, auth=("admin", "contraseña_incorrecta"))
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    print(f"Intento {i}: HTTP {r.status_code}  ({elapsed_ms:.1f} ms)")
+    time.sleep(0.5)
+```
+
+Este script también sirve, de forma indirecta, para **verificar
+empíricamente el efecto de `hmac.compare_digest`** (§12.5): los tiempos de
+respuesta (`elapsed_ms`) deberían mantenerse consistentes entre intentos
+con contraseñas de distinta "cercanía" a la real (ej. `admin12344` vs.
+`zzzzzzzzzz`), en vez de mostrar una correlación entre cuántos caracteres
+acierta la contraseña probada y el tiempo de respuesta — si hubiera esa
+correlación, sería señal de una regresión a comparación insegura.
+
+**e) Verificar que las cabeceras de seguridad estén presentes**
+(`_set_security_headers`, ver §7.1):
+
+```bash
+curl -s -I -u admin:CONTRASEÑA http://127.0.0.1:5001/api/estadisticas | \
+  grep -iE "x-frame-options|x-content-type-options|content-security-policy|referrer-policy|permissions-policy"
+```
+
+Debe listar las 5 cabeceras mencionadas en §7.1 — su ausencia indicaría
+que `@app.after_request` no se está aplicando (ej. tras una modificación
+del código que rompa el decorador).
+
+**f) Registro de qué se probó y cuándo** (recomendación de proceso, no
+automatizada): anotar la fecha de la última vez que se corrieron estas
+pruebas, junto con los hallazgos de §12.1, directamente en este documento
+o en un archivo `SECURITY_TESTING.md` aparte del repositorio — así, en
+una entrega de servicio social futura, quien continúe el proyecto sabe
+qué tan reciente es la validación de seguridad, no solo que existe.
+
 <a id="13"></a>
 ## 13. Mapa de dependencias
 
