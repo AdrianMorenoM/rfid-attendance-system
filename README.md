@@ -3166,6 +3166,264 @@ plt.show()
 | `kiosk.service` | Solo afecta la pantalla física | 🟢 Cosmético |
 | `network-watchdog.service` | El Wi-Fi no se autorrepara ante una caída | 🟡 Afecta solo acceso remoto |
 
+### 13.1 Dependencias entre servicios — detalle por componente
+
+Retomando la tabla de criticidad ya existente en esta sección, aquí se
+detalla **qué depende de qué** y qué ocurre exactamente al caer cada
+componente, no solo su nivel de criticidad.
+
+**`rfid.db` (no es un servicio, es el archivo compartido)**
+Todos los demás componentes dependen de él directa o indirectamente. No
+tiene un "servicio" que reiniciar — si se corrompe, no hay
+`systemctl restart` que lo arregle; la única vía es restauración desde
+respaldo (§13.3) o reconstrucción desde cero (§13.3). Es la única pieza
+del sistema sin redundancia activa alguna, ni siquiera a nivel de proceso
+(un solo archivo, ver §13.2 para las opciones de mitigación).
+
+**`rfid-reader.service`**
+Depende de: `rfid.db` (lectura y escritura directa), acceso a hardware
+GPIO/SPI. No depende de ningún otro servicio del sistema (`After=network.target`
+en §5.2 es orden de arranque, no dependencia funcional — el lector no
+necesita red para operar).
+*Si cae:* deja de registrarse asistencia nueva desde el instante de la
+caída. `Restart=always` (§5.2) lo reinicia automáticamente a los 5
+segundos — en la práctica, una caída breve por un error transitorio se
+autorrepara sin intervención. Una caída persistente (ej. hardware
+desconectado) sí requiere revisión manual.
+*Qué NO se ve afectado:* el CRUD y el dashboard siguen funcionando con los
+datos ya existentes en `rfid.db` — solo dejan de llegar registros nuevos.
+
+**`rfid-crud.service`**
+Depende de: `rfid.db` (lectura/escritura), `sudo` con permisos NOPASSWD
+para `systemctl` (gestión de servicios vía §7.4/§7.5), acceso a
+`crud/static/fotos/` en disco.
+*Si cae:* se pierde el panel administrativo completo (altas/bajas de
+estudiantes, exportaciones, respaldos, gestión de hardware). El lector
+**sigue registrando asistencia con normalidad**, porque no depende de este
+servicio — solo se pierde la capacidad de administrar el sistema mientras
+está caído.
+
+**`rfid-dashboard.service`**
+Depende de: `rfid.db` (solo lectura), `systemctl is-active rfid-reader`
+(para el indicador de estado del lector, ver §9.1/§8.2).
+*Si cae:* se pierde la visualización en tiempo real y la pantalla del
+kiosco queda en blanco/con error de conexión — pero el lector sigue
+registrando asistencia en `rfid.db` sin ningún problema; los datos no se
+pierden, simplemente no se muestran hasta que el servicio se recupere.
+
+**`kiosk.service`**
+Depende de: `rfid-dashboard.service` (explícitamente, vía
+`After=rfid-dashboard.service` en §5.2), entorno gráfico X.
+*Si cae:* solo afecta la pantalla física — es la dependencia más "hoja"
+del árbol, nada depende de `kiosk.service` a su vez. El sistema sigue
+operando por completo (lector registrando, CRUD y dashboard accesibles
+por navegador remoto) sin la pantalla.
+
+**`network-watchdog.service`**
+Depende de: `NetworkManager.service` (`Wants=`, §5.2). No depende de
+`rfid.db` ni de ningún otro servicio RFID.
+*Si cae:* el Wi-Fi no se autorrepara ante una desconexión — pero mientras
+la conexión ya establecida siga viva, no hay impacto inmediato. El
+impacto real aparece solo si además ocurre una caída de red mientras el
+watchdog está caído, dejando el sistema sin acceso remoto (aunque el
+lector, que no depende de red, sigue funcionando localmente).
+
+**Cadena de impacto resumida** (de mayor a menor alcance):
+
+```
+rfid.db (SPOF)
+  └── afecta a TODOS los servicios simultáneamente si se corrompe
+
+rfid-reader.service
+  └── si cae: se detiene el registro de asistencia (nadie más se ve afectado)
+
+rfid-crud.service
+  └── si cae: se pierde administración (reader y dashboard siguen operando)
+
+rfid-dashboard.service
+  └── si cae: se pierde visualización
+        └── kiosk.service
+              └── si cae: solo la pantalla física
+
+network-watchdog.service (independiente, solo afecta autorrecuperación de red)
+```
+
+---
+
+### 13.2 Estrategia de alta disponibilidad para el SPOF de `rfid.db`
+
+El diagrama y la tabla de criticidad ya identifican `rfid.db` como punto
+único de falla. **Ninguna de las siguientes opciones está implementada
+hoy** — el sistema actual solo cuenta con los respaldos bajo demanda de
+§6.5. Se presentan como alternativas evaluadas, en orden de menor a mayor
+esfuerzo de implementación.
+
+**a) Respaldos automatizados frecuentes (mitigación mínima, sin cambiar arquitectura)**
+
+No es alta disponibilidad real (no evita el tiempo de caída), pero reduce
+drásticamente la pérdida de datos si `rfid.db` se corrompe. Agregar una
+tarea programada que llame al mismo mecanismo ya existente
+(`DatabaseManager.create_backup`, §6.5-a) con más frecuencia que "bajo
+demanda":
+
+```bash
+# Agregar a crontab del usuario admin (crontab -e)
+# Respaldo cada 2 horas en horario escolar (7am–9pm)
+0 7-21/2 * * 1-5 sqlite3 /home/admin/rfid-system/shared/rfid.db \
+  ".backup '/home/admin/rfid-system/shared/backups/rfid_backup_$(date +\%Y\%m\%d_\%H\%M\%S).db'"
+```
+
+Ventaja: cero cambios de código, cero riesgo. Desventaja: en el peor caso
+(corrupción justo antes del siguiente respaldo programado) se pierden
+hasta 2 horas de registros de asistencia — aceptable para este caso de
+uso, no aceptable si el sistema protegiera algo más crítico.
+
+**b) Copia continua del archivo `.db` a otro nodo en la red (replicación fría)**
+
+Aprovechando que SQLite en modo WAL ya aísla bien las lecturas
+concurrentes (§6), se puede sincronizar el archivo (tras cada checkpoint)
+hacia otro equipo en la red institucional, sin tocar el código de la
+aplicación:
+
+```bash
+# En un segundo equipo (o en la misma Pi, hacia almacenamiten de red),
+# vía rsync programado cada 15-30 minutos
+rsync -avz admin@raspberry-rfid:/home/admin/rfid-system/shared/rfid.db \
+  /ruta/local/respaldo_remoto/rfid_$(date +\%Y\%m\%d_\%H\%M).db
+```
+
+Esta es "replicación fría": el segundo nodo tiene una copia, pero no está
+sirviendo tráfico — si la Raspberry Pi principal falla, alguien tiene que
+intervenir manualmente para promover esa copia (§13.3). No es
+*failover* automático, pero saca el respaldo fuera del único punto físico
+de falla (la propia microSD de la Pi).
+
+**c) Migración a PostgreSQL con replicación (alta disponibilidad real)**
+
+La opción que sí ofrece alta disponibilidad genuina (failover automático,
+sin ventana de pérdida de datos con replicación síncrona), pero implica el
+mayor esfuerzo — reescribir la capa de acceso a datos de los tres
+servicios (`rfid_reader.py`, `app_crud.py`, `app_dashboard.py`), que hoy
+usan `sqlite3` nativo de Python directamente, no un ORM que abstraiga el
+motor.
+
+Consideraciones específicas para este proyecto antes de evaluar esta ruta:
+
+- **Costo/beneficio cuestionable a esta escala.** El volumen de datos
+  proyectado (§6.6, decenas de MB por semestre) y el patrón de acceso
+  (una Raspberry Pi, sin usuarios concurrentes masivos) están muy por
+  debajo del punto donde SQLite deja de ser adecuado — PostgreSQL
+  resolvería un problema de escala que este sistema no tiene todavía.
+- **Requeriría un segundo equipo** (o un servidor PostgreSQL centralizado
+  del departamento/institución) — la arquitectura actual es
+  deliberadamente autónoma y sin dependencias externas (§1.4), lo cual se
+  perdería.
+- **Cambios de código no triviales:** las consultas actuales usan
+  parámetros posicionales `?` (sintaxis SQLite) en vez de `%s`
+  (psycopg2/PostgreSQL), y funciones como `strftime()` (usada en §6.4-e,
+  §9.1) tienen equivalentes distintos en PostgreSQL (`EXTRACT`/`date_trunc`).
+
+**Recomendación concreta para este proyecto:** implementar (a) de
+inmediato (bajo costo, mitigación real) y evaluar (b) si existe una
+segunda máquina disponible en el departamento sin costo adicional. (c)
+solo se justificaría si el sistema creciera a cubrir múltiples carreras/
+planteles con lectores concurrentes — un escenario fuera del alcance
+actual (§1.4).
+
+---
+
+### 13.3 Procedimiento de recuperación ante desastres
+
+Dos escenarios distintos, con procedimientos distintos.
+
+#### a) Restaurar desde un respaldo existente (escenario más común)
+
+Ya documentado paso a paso en §6.5-b — resumen operativo aquí, orientado
+a "algo salió mal, hay que recuperar rápido":
+
+```bash
+# 1. Detener TODOS los servicios que tocan rfid.db
+sudo systemctl stop rfid-reader rfid-crud rfid-dashboard
+
+# 2. Confirmar qué respaldos existen y elegir el más reciente y confiable
+ls -lh /home/admin/rfid-system/shared/backups/
+
+# 3. Respaldar el estado actual (aunque esté corrupto) por si acaso
+cp shared/rfid.db shared/rfid.db.antes_de_recuperar_$(date +%Y%m%d_%H%M%S)
+
+# 4. Restaurar
+cp shared/backups/rfid_backup_<FECHA_ELEGIDA>.db shared/rfid.db
+rm -f shared/rfid.db-wal shared/rfid.db-shm
+
+# 5. Verificar integridad antes de reiniciar servicios
+sqlite3 shared/rfid.db "PRAGMA integrity_check;"
+# Debe responder únicamente: ok
+
+# 6. Reiniciar servicios
+sudo systemctl start rfid-reader rfid-crud rfid-dashboard
+
+# 7. Confirmar que todo levantó bien
+sudo systemctl status rfid-reader rfid-crud rfid-dashboard
+```
+
+**Pérdida de datos esperada:** todo lo registrado entre la hora del
+respaldo elegido y el momento de la falla — de ahí la importancia de (a)
+en §13.2 para acortar esa ventana.
+
+#### b) Reconstruir la base de datos desde cero (sin respaldo utilizable)
+
+Escenario de última instancia — solo si no existe ningún respaldo
+recuperable (`PRAGMA integrity_check` falla en todos, o `shared/backups/`
+está vacío/inaccesible).
+
+```bash
+# 1. Detener todos los servicios
+sudo systemctl stop rfid-reader rfid-crud rfid-dashboard
+
+# 2. Mover el archivo corrupto fuera del camino (no borrarlo — puede
+#    servir para intentar recuperación forense/parcial después)
+mv shared/rfid.db shared/rfid.db.CORRUPTO_$(date +%Y%m%d_%H%M%S)
+rm -f shared/rfid.db-wal shared/rfid.db-shm
+
+# 3. Recrear el esquema desde cero (mismo script que en la instalación inicial)
+cd shared
+python3 init_db.py
+# Debe confirmar: "✅ Base de datos lista..." (ver §6.1)
+
+# 4. Si hay un CSV exportado previamente (§10.1) con el padrón de
+#    estudiantes, es el único camino práctico para no capturar todo
+#    manualmente — importarlo requiere un script ad hoc, ya que no
+#    existe un endpoint de "importar CSV" en la API actual (§7.10 solo
+#    tiene alta-masiva vía JSON, no CSV directo)
+
+# 5. Reiniciar servicios
+sudo systemctl start rfid-reader rfid-crud rfid-dashboard
+```
+
+**Pérdida de datos esperada:** el historial completo de
+`registros_asistencia` es irrecuperable en este escenario — es evidencia
+que solo existía en ese archivo (§6.3). El padrón de `estudiantes` y
+`tarjetas` se puede reconstruir manualmente o desde un CSV exportado
+previamente, pero requiere trabajo administrativo — **es exactamente el
+escenario que la estrategia de §13.2-a busca evitar**, reforzando por qué
+vale la pena automatizar los respaldos aunque sea con el método más
+simple.
+
+**Antes de considerar este escenario "irrecuperable":** vale la pena
+intentar `sqlite3 shared/rfid.db.CORRUPTO... "PRAGMA integrity_check;"` y,
+si reporta errores específicos (no un fallo total), probar
+`.recover` de la CLI moderna de `sqlite3` (disponible en versiones
+recientes), que puede rescatar las tablas no dañadas antes de recurrir a
+reconstrucción completa desde cero:
+
+```bash
+sqlite3 shared/rfid.db.CORRUPTO... ".recover" | sqlite3 shared/rfid_recuperado.db
+sqlite3 shared/rfid_recuperado.db "PRAGMA integrity_check;"
+```
+
+Si esto produce una base utilizable, es preferible a la reconstrucción
+total del inciso (b) — conserva historial que de otra forma se perdería.
+
 
 <a id="14"></a>
 ## 14. Conclusiones y recomendaciones
