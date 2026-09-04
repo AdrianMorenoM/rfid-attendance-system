@@ -25,7 +25,7 @@
 > | **Matrícula** | 22011747 |
 > | **Asesor** | José Martín Oropeza Méndez |
 > | **Modalidad** | Servicio Social |
-> | **Fecha del reporte original** | 18 de junio de 2026 (actualizado a agosto de 2026) |
+> | **Fecha del reporte original** | 15 de mayo de 2026 (actualizado a septiembre de 2026) |
 
 ---
 
