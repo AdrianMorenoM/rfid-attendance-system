@@ -1,10 +1,9 @@
 <div align="center">
 
 # Sistema de Control de Asistencia por RFID
-### Guía del proyecto
+### Guía completa del proyecto, explicada en lenguaje sencillo
 
-**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo**
-
+**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH)**
 **Ingeniería en Tecnologías de la Información y Comunicación**
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
@@ -25,15 +24,15 @@
 > | **Matrícula** | 22011747 |
 > | **Asesor** | José Martín Oropeza Méndez |
 > | **Modalidad** | Servicio Social |
-> | **Fecha del reporte original** | 15 de mayo de 2026 (actualizado a septiembre de 2026) |
+> | **Fecha del reporte original** | 18 de junio de 2026 (actualizado a agosto de 2026) |
 
 ---
 
 ## Acerca de este documento
 
-Este README explica, de manera clara y sin tecnicismos innecesarios, cómo funciona el Sistema de Control de Asistencia por RFID desarrollado durante el Servicio Social en el ITSOEH. Su propósito es [...]
+Este README explica, de manera clara y sin tecnicismos innecesarios, cómo funciona el Sistema de Control de Asistencia por RFID desarrollado durante el Servicio Social en el ITSOEH. Su propósito es que cualquier persona —sin importar si tiene o no formación en informática— pueda entender qué hace el sistema, cómo está construido, qué tan seguro es y qué se recomienda mejorar a futuro.
 
-El contenido conserva todos los datos técnicos reales del proyecto (nombres de archivos, tablas de la base de datos, tiempos de respuesta, hallazgos de seguridad, etc.), pero los explica con anal[...]
+El contenido conserva todos los datos técnicos reales del proyecto (nombres de archivos, tablas de la base de datos, tiempos de respuesta, hallazgos de seguridad, etc.), pero los explica con analogías y palabras cotidianas siempre que es posible. Cuando un término técnico es indispensable, se explica la primera vez que aparece y se incluye también en el glosario (sección 15). Los diagramas de este documento están hechos con Mermaid, un formato de texto que GitHub dibuja automáticamente como diagrama — no son imágenes sueltas, así que se mantienen legibles y editables junto con el resto del texto.
 
 ## Tabla de contenido
 
@@ -60,11 +59,11 @@ El contenido conserva todos los datos técnicos reales del proyecto (nombres de 
 
 ### 1.1 ¿Por qué se hizo este proyecto?
 
-Tomar la asistencia a mano es lento y da pie a errores: se pueden perder las hojas o simplemente toma tiempo de clase que podría usarse para enseñar. Para resolver esto, como parte de servicio social se diseñó un sistema que registra la asistencia de forma automática: cada estudiante acerca una tarjeta a un lector, el sistema reconoce quién es y guarda el registro al instante, sin que nadie tenga que escribir nada a mano.
+Tomar la asistencia a mano —pasando lista o firmando en una hoja— es lento y da pie a errores: alguien puede firmar por otra persona, se pueden perder las hojas, o simplemente toma tiempo de clase que podría usarse para enseñar. Para resolver esto, como parte del Servicio Social se diseñó e implementó un sistema que registra la asistencia de forma automática: cada estudiante acerca una tarjeta a un lector, el sistema reconoce quién es y guarda el registro al instante, sin que nadie tenga que escribir nada a mano.
 
 ### 1.2 Objetivo general
 
-Diseñar, construir y documentar un sistema de asistencia por RFID (identificación por radiofrecuencia, es decir, tarjetas que se leen sin contacto físico) que sea funcional, razonablemente seguro y fácil de mantener para la carrera de ITIC's, de modo que sirva tanto para uso diario como para que otra persona pueda darle continuidad en el futuro.
+Diseñar, construir y documentar un sistema de asistencia por RFID (identificación por radiofrecuencia, es decir, tarjetas que se leen sin contacto físico) que sea funcional, razonablemente seguro y fácil de mantener para el ITSOEH, de modo que sirva tanto para uso diario como para que otra persona pueda darle continuidad en el futuro.
 
 ### 1.3 Objetivos específicos
 
@@ -74,7 +73,7 @@ Diseñar, construir y documentar un sistema de asistencia por RFID (identificaci
 - Construir una pantalla de visualización en tiempo real con las cifras del día.
 - Hacer que el sistema se recupere solo ante fallas comunes, como una desconexión de red, y que quede constancia de quién hizo qué dentro del panel de administración.
 - Revisar la seguridad del sistema e identificar qué se podría mejorar.
-- Dejar todo documentado, para que el conocimiento no se pierda.
+- Dejar todo documentado, para que el conocimiento no se pierda cuando termine el Servicio Social.
 
 ### 1.4 ¿Qué tan grande es el sistema?
 
@@ -105,7 +104,7 @@ flowchart TD
 ```
 *Diagrama 1. Visión general del sistema — cómo se conectan sus piezas.*
 
-> Punto importante: como toda la información vive en un único archivo (la base de datos), ese archivo es el eslabón más delicado de todo el sistema. Si se dañara y no existiera un respaldo reciente, todo el sistema quedaría "a ciegas" al mismo tiempo. Esta idea se retoma con más detalle en la sección 13.
+> **Punto importante:** como toda la información vive en un único archivo (la base de datos), ese archivo es el eslabón más delicado de todo el sistema. Si se dañara y no existiera un respaldo reciente, todo el sistema quedaría "a ciegas" al mismo tiempo. Esta idea se retoma con más detalle en la sección 13.
 
 El panel administrativo (que escucha en el puerto de red 5001) sí es accesible desde otros equipos de la red local, mientras que el panel de visualización (puerto 5000) solo puede verse desde la propia Raspberry Pi —por ejemplo, en la pantalla física que eventualmente se conecte a ella—. Esta diferencia es intencional: reduce la cantidad de puntos desde los que alguien podría intentar acceder al sistema.
 
@@ -204,7 +203,6 @@ Las tarjetas que usa el sistema pueden guardar información en su interior prote
 
 Si el programa se ejecuta en una computadora que no tiene el lector conectado (por ejemplo, durante pruebas o desarrollo), el sistema lo detecta automáticamente y simplemente se queda a la espera, sin fallar ni generar errores. Es importante aclarar que este modo no simula lecturas de tarjetas: solo evita que el programa se caiga por falta de hardware.
 
-
 ---
 
 ## 5. Cómo está organizado el software
@@ -267,9 +265,9 @@ erDiagram
 | Tabla | Qué guarda | Dato más importante |
 |---|---|---|
 | Estudiantes | Nombre, matrícula, carrera, semestre, grupo, correo, foto y si está activo o inactivo. | La matrícula debe ser única para cada estudiante. |
-| Tarjetas | El número de cada tarjeta física y a qué estudiante pertenece (si ya fue asignada). | Un mismo estudiante puede tener varias tarjetas a lo largo del tiempo (por ejemplo, si repone[...]
-| Registros de asistencia | Cada evento de lectura: quién, cuándo y si fue aceptado, rechazado o ya se había registrado ese día. | Es la tabla que más crece; nunca se borra automáticamente.[...]
-| Bitácora de auditoría | Qué acciones administrativas sensibles se realizaron (reinicios, restauraciones, bajas masivas), desde qué dirección de red y si tuvieron éxito. | Sirve para recon[...]
+| Tarjetas | El número de cada tarjeta física y a qué estudiante pertenece (si ya fue asignada). | Un mismo estudiante puede tener varias tarjetas a lo largo del tiempo (por ejemplo, si repone una extraviada). |
+| Registros de asistencia | Cada evento de lectura: quién, cuándo y si fue aceptado, rechazado o ya se había registrado ese día. | Es la tabla que más crece; nunca se borra automáticamente. |
+| Bitácora de auditoría | Qué acciones administrativas sensibles se realizaron (reinicios, restauraciones, bajas masivas), desde qué dirección de red y si tuvieron éxito. | Sirve para reconstruir qué pasó ante cualquier duda o incidente. |
 
 *Tabla 4. Las cuatro tablas que componen la base de datos del sistema.*
 
@@ -300,12 +298,12 @@ Además de la contraseña, el sistema tiene varias capas adicionales de protecci
 | Área | Qué permite hacer |
 |---|---|
 | Estadísticas y análisis | Ver cifras del día y de los últimos siete días, así como comparativas por semestre y por hora. |
-| Estudiantes | Dar de alta, editar, dar de baja o eliminar estudiantes, de forma individual o en bloque (por ejemplo, promover a todo un grupo de semestre, o dar de baja a una generación comple[...]
+| Estudiantes | Dar de alta, editar, dar de baja o eliminar estudiantes, de forma individual o en bloque (por ejemplo, promover a todo un grupo de semestre, o dar de baja a una generación completa). |
 | Tarjetas | Asignar, activar, desactivar o eliminar tarjetas, y asociarlas a un estudiante. |
-| Alta rápida de tarjetas | Activar un modo de "escucha" para capturar el número de una tarjeta nueva con solo acercarla al lector, en lugar de teclearlo a mano; también admite capturar varias[...]
+| Alta rápida de tarjetas | Activar un modo de "escucha" para capturar el número de una tarjeta nueva con solo acercarla al lector, en lugar de teclearlo a mano; también admite capturar varias tarjetas seguidas en una sola sesión, útil al inicio de cada semestre. |
 | Reportes y exportación | Descargar en formato CSV (compatible con Excel) el padrón completo de estudiantes o la asistencia de un día específico. |
 | Hardware y red | Consultar temperatura, uso de memoria y espacio en disco del equipo, ver el estado de la conexión Wi-Fi, y reiniciar o apagar la Raspberry Pi de forma remota. |
-| Base de datos | Ver su estado, crear y descargar respaldos, restaurar un respaldo anterior, y depurar registros antiguos según fecha, carrera, semestre o grupo (con una vista previa antes de b[...]
+| Base de datos | Ver su estado, crear y descargar respaldos, restaurar un respaldo anterior, y depurar registros antiguos según fecha, carrera, semestre o grupo (con una vista previa antes de borrar nada). |
 | Bitácora de auditoría | Consultar el historial de acciones administrativas sensibles realizadas en el sistema. |
 
 *Tabla 5. Principales funciones disponibles desde el panel administrativo.*
@@ -320,7 +318,7 @@ Casi todas las funciones del panel devuelven la información en un formato está
 
 ## 8. El recorrido completo de un dato: de la tarjeta a la pantalla
 
-Para entender qué tan rápido responde el sistema, conviene seguir paso a paso lo que ocurre desde que alguien acerca su tarjeta hasta que ese evento aparece reflejado en la pantalla de visualiz[...]
+Para entender qué tan rápido responde el sistema, conviene seguir paso a paso lo que ocurre desde que alguien acerca su tarjeta hasta que ese evento aparece reflejado en la pantalla de visualización.
 
 ```mermaid
 sequenceDiagram
@@ -354,31 +352,31 @@ sequenceDiagram
 
 *Tabla 6. Tiempos aproximados de respuesta del sistema, de la tarjeta a la pantalla.*
 
-Vale la pena señalar con honestidad los puntos donde el sistema podría ser más eficiente. El más notable es que, para saber si el programa lector sigue activo, el panel de visualización le pregun[...]
+Vale la pena señalar con honestidad los puntos donde el sistema podría ser más eficiente. El más notable es que, para saber si el programa lector sigue activo, el panel de visualización le pregunta directamente al sistema operativo cada cinco segundos, y esa consulta en particular es bastante más lenta (entre 50 y 300 milisegundos) que cualquiera de las consultas a la base de datos; espaciarla un poco más —revisarla cada 30 o 60 segundos en lugar de en cada actualización— aliviaría esa carga sin perder utilidad real. Otro punto de mejora es que hoy no existe una forma de que la base de datos "avise" al panel de visualización en el instante en que ocurre un evento nuevo: todo funciona por consultas repetidas a intervalos fijos, lo cual es sencillo y confiable, pero impone ese límite de hasta 800 milisegundos antes de que un evento se refleje en pantalla.
 
 ---
 
 ## 9. El panel de visualización en tiempo real
 
-Esta pantalla, pensada para mostrarse en un monitor dedicado o consultarse desde cualquier equipo de la red local, resume lo que ha ocurrido durante el día: cuántos accesos fueron aceptados, cuánto[...]
+Esta pantalla, pensada para mostrarse en un monitor dedicado o consultarse desde cualquier equipo de la red local, resume lo que ha ocurrido durante el día: cuántos accesos fueron aceptados, cuántos fueron rechazados, cuántas tarjetas están activas en el sistema, un listado de los eventos más recientes con el nombre de cada persona, y una gráfica de barras que muestra en qué horas del día hay más movimiento.
 
-La actualización de esta pantalla ocurre en dos velocidades distintas, cada una ajustada a lo que realmente necesita. Cada 800 milisegundos, el sistema revisa si hubo un evento nuevo (una consul[...]
+La actualización de esta pantalla ocurre en dos velocidades distintas, cada una ajustada a lo que realmente necesita. Cada 800 milisegundos, el sistema revisa si hubo un evento nuevo (una consulta muy ligera), y si lo hay, muestra de inmediato un aviso a pantalla completa con el nombre de la persona. Cada cinco segundos, se actualizan las cifras generales —los contadores, la gráfica por hora y el indicador de si el lector sigue activo—, ya que estos datos no cambian de un instante a otro y no tiene sentido recalcularlos con tanta frecuencia como el aviso de "tarjeta aceptada".
 
-El diseño visual del panel está centralizado: todos los colores del panel están definidos en un solo lugar del código, así que cambiar, por ejemplo, el tono de azul institucional actualiza a[...]
+El diseño visual del panel está centralizado: todos los colores del panel están definidos en un solo lugar del código, así que cambiar, por ejemplo, el tono de azul institucional actualiza automáticamente el resto de los elementos que lo usan, sin tener que modificar cada uno por separado. De la misma forma, ya existe internamente una cifra —cuántas personas han vuelto a pasar su tarjeta después de su primer registro del día— que el sistema calcula pero que actualmente no se muestra en ningún lugar de la pantalla; añadirla es un buen ejemplo de mejora sencilla, ya que el dato ya viaja hasta el navegador, solo falta mostrarlo.
 
 ---
 
 ## 10. Exportación de reportes y actualización del sistema
 
-El sistema no cuenta con un proceso automático que transforme datos entre distintos sistemas (lo que en informática se conoce como un proceso ETL); toda la información se guarda y se consulta [...]
+El sistema no cuenta con un proceso automático que transforme datos entre distintos sistemas (lo que en informática se conoce como un proceso ETL); toda la información se guarda y se consulta directamente en la misma base de datos. Las dos únicas formas de "salida" de información hacia afuera del sistema son la exportación a reportes en formato CSV y las actualizaciones incrementales de la estructura de la base de datos, descritas a continuación.
 
 ### 10.1 Reportes en CSV
 
-El panel administrativo permite descargar tanto el padrón completo de estudiantes como la asistencia de un día concreto, en un formato de texto separado por comas (CSV) que Excel puede abrir di[...]
+El panel administrativo permite descargar tanto el padrón completo de estudiantes como la asistencia de un día concreto, en un formato de texto separado por comas (CSV) que Excel puede abrir directamente. El sistema entrega estos archivos poco a poco, en pequeños bloques, en lugar de construir el archivo completo en memoria antes de enviarlo; esto evita que una exportación grande consuma de golpe toda la memoria disponible en la Raspberry Pi. Se incluyen además dos cuidados poco visibles pero importantes: el archivo indica explícitamente que su codificación es UTF-8 para que Excel muestre correctamente los acentos y la letra "ñ" sin configuración adicional, y cualquier campo de texto que comience con un carácter que Excel podría interpretar como el inicio de una fórmula (por ejemplo, un signo igual) se neutraliza automáticamente anteponiéndole una comilla, evitando así que un nombre mal intencionado se ejecute como una fórmula al abrir el archivo.
 
 ### 10.2 Cómo evoluciona la estructura de la base de datos
 
-Cuando ha sido necesario agregar información nueva a la base de datos —por ejemplo, cuando se añadió la bitácora de auditoría—, esto se hizo mediante actualizaciones incrementales que se[...]
+Cuando ha sido necesario agregar información nueva a la base de datos —por ejemplo, cuando se añadió la bitácora de auditoría—, esto se hizo mediante actualizaciones incrementales que se pueden ejecutar de forma segura las veces que hagan falta, sin borrar la información ya existente ni afectar a una instalación que ya tenía esos cambios aplicados. Este mecanismo está protegido detrás de un interruptor que permanece apagado en el uso normal del sistema, y que solo se activa temporalmente, de forma manual, en el momento en que se necesita aplicar una actualización, respaldando siempre la base de datos antes de hacerlo.
 
 ---
 
@@ -395,13 +393,13 @@ Además de la información de asistencia, el sistema guarda distintos tipos de r
 
 *Tabla 7. Fuentes de registro del sistema y su política de conservación.*
 
-La bitácora de auditoría merece una mención aparte, porque es la que documenta acciones con posible impacto real: reinicios o apagados del equipo, creación o restauración de respaldos, elimi[...]
+La bitácora de auditoría merece una mención aparte, porque es la que documenta acciones con posible impacto real: reinicios o apagados del equipo, creación o restauración de respaldos, eliminación de un respaldo, depuraciones de registros antiguos, y promociones o bajas masivas de estudiantes. Cada una de estas acciones queda registrada con la fecha, la dirección de red desde donde se hizo, el detalle de la operación y si tuvo éxito o no —incluso los intentos de acceso bloqueados por exceso de intentos fallidos quedan anotados—. Para ser transparentes sobre sus límites: hoy no quedan registradas ahí las altas, ediciones o bajas individuales de un solo estudiante o tarjeta, ni el encendido y apagado de los programas de forma individual (solo el reinicio o apagado de todo el equipo); esta es una diferencia intencional entre "lo que se audita" (acciones de alto impacto) y "lo que ocurre en el día a día" (operaciones rutinarias).
 
 ---
 
 ## 12. Seguridad del sistema
 
-Se realizó una revisión de seguridad enfocada en dos riesgos principales: que alguien pudiera ejecutar comandos no autorizados en el equipo (aprovechando que el panel puede reiniciar servicios [...]
+Se realizó una revisión de seguridad enfocada en dos riesgos principales: que alguien pudiera ejecutar comandos no autorizados en el equipo (aprovechando que el panel puede reiniciar servicios del sistema de forma remota), y que alguien sin autorización pudiera acceder a la información o a las funciones administrativas del sistema.
 
 ### 12.1 Qué se encontró
 
@@ -409,10 +407,10 @@ Se realizó una revisión de seguridad enfocada en dos riesgos principales: que 
 |---|---|
 | Posible ejecución de comandos no autorizados | Descartado: el sistema solo acepta nombres de servicio de una lista predefinida y cerrada, y sanea cualquier valor antes de usarlo. |
 | Endpoints sin autenticación | Descartado: la exigencia de usuario y contraseña cubre absolutamente todas las funciones del panel, sin excepción. |
-| Las credenciales viajan sin cifrar por la red | Pendiente. Es el hallazgo de mayor prioridad: se recomienda cifrar la conexión (HTTPS) antes de operar el sistema sin supervisión directa.[...]
+| Las credenciales viajan sin cifrar por la red | Pendiente. Es el hallazgo de mayor prioridad: se recomienda cifrar la conexión (HTTPS) antes de operar el sistema sin supervisión directa. |
 | Contraseña de administrador poco robusta | Pendiente. Se recomienda sustituirla por una generada de forma aleatoria y no reutilizada en ningún otro sistema. |
 | Restricción por red institucional, construida pero apagada | Pendiente activar. El mecanismo ya existe en el código; solo falta configurarlo y encenderlo. |
-| Falta una confirmación explícita al reiniciar la conexión de red | Pendiente, de baja prioridad. Otras operaciones similares sí piden confirmación; esta debería seguir el mismo crite[...]
+| Falta una confirmación explícita al reiniciar la conexión de red | Pendiente, de baja prioridad. Otras operaciones similares sí piden confirmación; esta debería seguir el mismo criterio. |
 | Contraseña débil en el mecanismo de respaldo por SSH | Solo aplica si llegara a usarse ese modo alterno de conexión remota; no está en uso en la operación normal. |
 
 *Tabla 8. Hallazgos de la revisión de seguridad y su estado actual.*
@@ -460,31 +458,31 @@ flowchart TD
     class C,D noCritico
     class K,W cosmetico
 ```
-*Diagrama 5. Qué tan grave es la falla de cada componente — crítico, no crítico para la operación diaria, afecta solo lo cosmético o el acceso remoto.*
+*Diagrama 5. Qué tan grave es la falla de cada componente — rojo: crítico, naranja: no crítico para la operación diaria, gris: afecta solo lo cosmético o el acceso remoto.*
 
 | Si esto falla… | …esto es lo que pasa | Qué tan grave es |
 |---|---|---|
-| La base de datos se daña | Todo el sistema queda ciego: nada puede leerse ni escribirse, en ninguna de sus partes. | Crítico — es el único punto que, si falla, afecta a todo a la vez.[...]
-| El programa del lector se detiene | Deja de registrarse asistencia nueva, aunque el resto del sistema sigue funcionando con la información ya existente. Se reinicia solo, generalmente en segun[...]
-| El panel administrativo se detiene | Se pierde la posibilidad de administrar el sistema, pero el lector sigue registrando asistencia con normalidad. | No crítico para la operación diaria[...]
+| La base de datos se daña | Todo el sistema queda ciego: nada puede leerse ni escribirse, en ninguna de sus partes. | Crítico — es el único punto que, si falla, afecta a todo a la vez. |
+| El programa del lector se detiene | Deja de registrarse asistencia nueva, aunque el resto del sistema sigue funcionando con la información ya existente. Se reinicia solo, generalmente en segundos. | Crítico para el registro diario. |
+| El panel administrativo se detiene | Se pierde la posibilidad de administrar el sistema, pero el lector sigue registrando asistencia con normalidad. | No crítico para la operación diaria. |
 | El panel de visualización se detiene | Se pierde la pantalla en tiempo real, pero los datos se siguen guardando sin problema y aparecerán en cuanto el panel se recupere. | No crítico. |
 | El vigilante de red se detiene | El Wi-Fi deja de repararse solo si se cae, pero mientras la conexión actual siga viva, no hay impacto inmediato. | Afecta solo el acceso remoto. |
 
 *Tabla 10. Qué ocurre si cada componente del sistema falla, y qué tan grave es.*
 
-Esto deja claro por qué la base de datos es, con diferencia, el punto más delicado del sistema: hoy no existe una copia "en caliente" que pueda tomar su lugar automáticamente si falla, solo re[...]
+Esto deja claro por qué la base de datos es, con diferencia, el punto más delicado del sistema: hoy no existe una copia "en caliente" que pueda tomar su lugar automáticamente si falla, solo respaldos que se generan bajo demanda. Hay tres caminos posibles para reducir este riesgo, de menor a mayor esfuerzo:
 
-1. **Respaldos automáticos frecuentes** (por ejemplo, cada dos horas en horario escolar) — no requiere ningún cambio al sistema y reduce drásticamente cuánta información se podría perder [...]
+1. **Respaldos automáticos frecuentes** (por ejemplo, cada dos horas en horario escolar) — no requiere ningún cambio al sistema y reduce drásticamente cuánta información se podría perder en el peor de los casos. Es la opción que se recomienda aplicar de inmediato.
 2. **Copia periódica hacia otro equipo de la red** — una segunda red de seguridad fuera de la propia tarjeta de memoria de la Raspberry Pi.
-3. **Migrar a un motor de base de datos con replicación automática** — ofrecería continuidad real ante una falla, pero implicaría reescribir buena parte del sistema y añadir la dependencia[...]
+3. **Migrar a un motor de base de datos con replicación automática** — ofrecería continuidad real ante una falla, pero implicaría reescribir buena parte del sistema y añadir la dependencia de un segundo equipo. Dado el tamaño actual del proyecto, este esfuerzo no se justifica todavía, y solo tendría sentido si el sistema creciera para cubrir varias carreras o varios lectores a la vez.
 
-Ante una falla real, el procedimiento es restaurar el respaldo más reciente confiable, verificando primero que ese respaldo esté íntegro antes de ponerlo en producción. En el escenario extrem[...]
+Ante una falla real, el procedimiento es restaurar el respaldo más reciente confiable, verificando primero que ese respaldo esté íntegro antes de ponerlo en producción. En el escenario extremo de no contar con ningún respaldo utilizable, es posible reconstruir la estructura de la base de datos desde cero, aunque en ese caso el historial completo de asistencia se pierde de forma irrecuperable —es evidencia que solo existía en ese archivo—; el padrón de estudiantes, en cambio, podría reconstruirse a partir de un reporte CSV exportado previamente. Este escenario extremo es, precisamente, la razón por la que vale la pena automatizar los respaldos aunque sea con el método más simple posible.
 
 ---
 
 ## 14. Conclusiones y recomendaciones
 
-El sistema cumple con el objetivo que se planteó desde el inicio: automatizar el registro de asistencia mediante tarjetas RFID de forma confiable, con una arquitectura sencilla, autosuficiente ([...]
+El sistema cumple con el objetivo que se planteó desde el inicio: automatizar el registro de asistencia mediante tarjetas RFID de forma confiable, con una arquitectura sencilla, autosuficiente (no depende de internet ni de servicios externos) y con buenas prácticas de seguridad ya presentes desde su construcción, como la autenticación obligatoria en todas las funciones y las consultas seguras a la base de datos. El hecho de que el lector, el panel administrativo y el panel de visualización sean programas independientes entre sí permite que una falla parcial no derribe todo el sistema, salvo por la dependencia que los tres comparten: una única base de datos.
 
 | Prioridad | Recomendación para trabajo futuro |
 |---|---|
@@ -523,21 +521,21 @@ El sistema cumple con el objetivo que se planteó desde el inicio: automatizar e
 
 ## 16. Referencias
 
-Este documento se elaboró revisando directamente el código fuente del sistema; si el código cambia en el futuro (nuevas funciones, cambios en el comportamiento), este documento debería actual[...]
+Este documento se elaboró revisando directamente el código fuente del sistema; si el código cambia en el futuro (nuevas funciones, cambios en el comportamiento), este documento debería actualizarse para no quedar desincronizado con la realidad del proyecto. Para profundizar en los componentes de terceros que el sistema utiliza, se sugieren las siguientes fuentes oficiales:
 
 - SQLite — documentación oficial del modo WAL: [sqlite.org/wal.html](https://www.sqlite.org/wal.html)
 - Flask — documentación oficial del framework web utilizado: [flask.palletsprojects.com](https://flask.palletsprojects.com/)
 - Gunicorn — documentación oficial del servidor usado para ejecutar el panel administrativo y el panel de visualización: [gunicorn.org](https://gunicorn.org/)
 - Hoja de datos técnica del módulo lector MFRC522, publicada por su fabricante, NXP.
-- systemd — documentación oficial de la gestión de servicios en Linux: [freedesktop.org/software/systemd/man/systemd.service.html](https://www.freedesktop.org/software/systemd/man/systemd.ser[...]
+- systemd — documentación oficial de la gestión de servicios en Linux: [freedesktop.org/software/systemd/man/systemd.service.html](https://www.freedesktop.org/software/systemd/man/systemd.service.html)
 
 ### Anexo A — Esquema completo de la base de datos
 
-La estructura completa de las tablas e índices de la base de datos —incluyendo cada columna con su tipo de dato— se encuentra en el archivo de inicialización del proyecto (`init_db.py`), di[...]
+La estructura completa de las tablas e índices de la base de datos —incluyendo cada columna con su tipo de dato— se encuentra en el archivo de inicialización del proyecto (`init_db.py`), disponible en el repositorio del sistema.
 
 ### Anexo B — Créditos
 
-Documento elaborado como parte del Servicio Social en el Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH), por **Adrián Moreno Méndez**, estudiante de Ingeniería en[...]
+Documento elaborado como parte del Servicio Social en el Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH), por **Adrián Moreno Méndez**, estudiante de Ingeniería en Tecnologías de la Información y Comunicación, bajo la asesoría de **José Martín Oropeza Méndez**.
 
 <div align="center">
 
