@@ -223,15 +223,15 @@ El sistema está compuesto por tres programas principales, cada uno enfocado en 
 
 ### 5.1 Cómo se mantienen siempre encendidos
 
-Cada uno de estos programas está registrado ante el propio sistema operativo (mediante un mecanismo llamado *systemd*) para que arranque automáticamente cuando se enciende la Raspberry Pi y, si[...]
+Cada uno de estos programas está registrado ante el propio sistema operativo (mediante un mecanismo llamado *systemd*) para que arranque automáticamente cuando se enciende la Raspberry Pi y, si llegara a cerrarse por cualquier motivo, se reinicie solo a los pocos segundos. El programa del lector corre con permisos de administrador porque necesita acceso directo al hardware; el panel administrativo y el panel de visualización, en cambio, corren con una cuenta de usuario normal, con permisos limitados, ya que no necesitan tocar el hardware directamente —solo la base de datos—.
 
-El panel administrativo y el panel de visualización usan un servidor llamado Gunicorn, configurado con dos procesos y dos "hilos" de atención cada uno; esto le permite responder varias peticion[...]
+El panel administrativo y el panel de visualización usan un servidor llamado Gunicorn, configurado con dos procesos y dos "hilos" de atención cada uno; esto le permite responder varias peticiones al mismo tiempo sin bloquear unas con otras. El panel administrativo tiene además un margen de espera más largo (dos minutos) para operaciones que pueden tardar, como generar un reporte grande o respaldar la base de datos, mientras que el panel de visualización, que solo hace consultas rápidas, usa el margen estándar.
 
 ---
 
 ## 6. La base de datos: qué información se guarda y cómo
 
-Toda la información del sistema vive en un solo archivo, usando un motor de base de datos llamado SQLite, configurado en un modo (llamado WAL) que permite que varios programas lean la informaci�[...]
+Toda la información del sistema vive en un solo archivo, usando un motor de base de datos llamado SQLite, configurado en un modo (llamado WAL) que permite que varios programas lean la información al mismo tiempo sin bloquearse entre sí, mientras el lector sigue escribiendo nuevos registros de forma constante.
 
 ### 6.1 Qué información guarda cada tabla
 
@@ -275,25 +275,25 @@ erDiagram
 
 ### 6.2 Por qué borrar un estudiante no borra su historial
 
-Cuando se elimina un estudiante de la base de datos, sus tarjetas y su historial de asistencia no desaparecen con él: quedan como registros "huérfanos", identificables por el número de tarjeta[...]
+Cuando se elimina un estudiante de la base de datos, sus tarjetas y su historial de asistencia no desaparecen con él: quedan como registros "huérfanos", identificables por el número de tarjeta, en lugar de borrarse en cascada. Esta decisión fue deliberada, por dos razones. Primero, el historial de asistencia documenta hechos que ya ocurrieron —una tarjeta pasó por el lector en tal fecha y hora— y borrarlo automáticamente eliminaría evidencia que podría necesitarse después, por ejemplo para una auditoría o un trámite administrativo. Segundo, si un estudiante se elimina por error de captura, conservar sus registros permite reconciliar la información manualmente; si se hubieran borrado en cascada, esa información se habría perdido de forma irreversible en el mismo instante. Por este motivo, el sistema prefiere "dar de baja" a un estudiante (marcarlo como inactivo, sin borrarlo) en lugar de eliminarlo físicamente; la eliminación física queda reservada para casos excepcionales, como un registro duplicado por error de captura.
 
 ### 6.3 Mantenimiento: respaldos, restauración y crecimiento
 
-El panel administrativo permite generar un respaldo de la base de datos con un solo botón, en cualquier momento; ese respaldo usa el propio mecanismo de SQLite para garantizar que la copia quede[...]
+El panel administrativo permite generar un respaldo de la base de datos con un solo botón, en cualquier momento; ese respaldo usa el propio mecanismo de SQLite para garantizar que la copia quede completa y consistente, incluso si en ese momento se está escribiendo un nuevo registro. Restaurar un respaldo es una operación delicada —sobrescribe la información en uso— por lo que primero se detienen los programas que usan la base de datos, se guarda una copia de seguridad del estado actual por si acaso, y solo entonces se sustituye el archivo por el respaldo elegido.
 
-Con un uso típico —entre 300 y 500 estudiantes activos y unos 2 a 4 escaneos por estudiante al día, incluyendo reintentos— la base de datos crece aproximadamente entre 150 y 300 kilobytes p[...]
+Con un uso típico —entre 300 y 500 estudiantes activos y unos 2 a 4 escaneos por estudiante al día, incluyendo reintentos— la base de datos crece aproximadamente entre 150 y 300 kilobytes por día, lo que equivale a entre 13 y 27 megabytes por semestre y entre 30 y 60 megabytes por año. Incluso después de varios años de uso continuo sin depurar nada, el archivo se mantendría en el orden de unos pocos cientos de megabytes, muy por debajo de cualquier límite práctico. El verdadero riesgo a largo plazo no es el espacio en disco, sino que las consultas se vuelvan un poco más lentas conforme la tabla de registros crece a cientos de miles de renglones a lo largo de varios años; por eso se recomienda, al cierre de cada ciclo escolar, mover los registros más antiguos a un archivo histórico separado, conservando la posibilidad de consultarlos después si hiciera falta.
 
 ---
 
 ## 7. El panel administrativo: qué se puede hacer desde ahí
 
-El panel administrativo es una página web que se comunica con el sistema mediante más de cincuenta funciones internas (en informática, a este conjunto de funciones se le llama una API). No es [...]
+El panel administrativo es una página web que se comunica con el sistema mediante más de cincuenta funciones internas (en informática, a este conjunto de funciones se le llama una API). No es necesario conocer cada una de ellas para entender el sistema; basta con saber qué grandes tareas cubre y cómo está protegido.
 
 ### 7.1 Cómo se protege el acceso
 
-Cada vez que alguien intenta usar el panel administrativo, el sistema exige un usuario y una contraseña (un esquema llamado "autenticación básica"); no existe una sesión que se quede abierta [...]
+Cada vez que alguien intenta usar el panel administrativo, el sistema exige un usuario y una contraseña (un esquema llamado "autenticación básica"); no existe una sesión que se quede abierta ni un botón de "cerrar sesión", cada solicitud debe presentar las credenciales. Estas credenciales no se comparan de la forma más simple posible, sino con una técnica resistente a los llamados "ataques de tiempo": una comparación ingenua puede, en teoría, delatar sin querer cuántos caracteres de la contraseña se acertaron según cuánto tarda en responder el sistema; la técnica usada aquí tarda siempre lo mismo, sin importar si la contraseña es correcta o no, cerrando esa posible fuga de información.
 
-Además de la contraseña, el sistema tiene varias capas adicionales de protección: un límite de intentos fallidos por minuto (para frenar intentos de adivinar la contraseña por fuerza bruta),[...]
+Además de la contraseña, el sistema tiene varias capas adicionales de protección: un límite de intentos fallidos por minuto (para frenar intentos de adivinar la contraseña por fuerza bruta), un mecanismo —ya construido pero actualmente apagado— para aceptar conexiones solo desde direcciones de red conocidas de la institución, encabezados de seguridad que dificultan ciertos ataques comunes en la web, un límite de tamaño máximo por solicitud (5 megabytes) y una protección adicional en las operaciones más delicadas (como reiniciar el equipo o borrar información en bloque), que exige una confirmación explícita antes de ejecutarse.
 
 ### 7.2 Qué se puede hacer desde el panel
 
@@ -310,11 +310,11 @@ Además de la contraseña, el sistema tiene varias capas adicionales de protecci
 
 *Tabla 5. Principales funciones disponibles desde el panel administrativo.*
 
-Una particularidad digna de mención: cuando algo falla dentro de una operación de depuración de registros ("purga"), el sistema garantiza que nunca se borre información sin haber logrado ante[...]
+Una particularidad digna de mención: cuando algo falla dentro de una operación de depuración de registros ("purga"), el sistema garantiza que nunca se borre información sin haber logrado antes crear un respaldo de seguridad automático; si el respaldo no puede crearse, la operación completa se cancela.
 
 ### 7.3 Formato de las respuestas
 
-Casi todas las funciones del panel devuelven la información en un formato estándar y homogéneo, de manera que un error inesperado en cualquiera de ellas se reporta siempre de forma consistente[...]
+Casi todas las funciones del panel devuelven la información en un formato estándar y homogéneo, de manera que un error inesperado en cualquiera de ellas se reporta siempre de forma consistente. Existen, sin embargo, cuatro funciones (la página principal del panel y las de exportación y descarga de archivos) que no siguen este mismo formato de error por la naturaleza de lo que entregan —un archivo en lugar de un mensaje corto—, algo a tener en cuenta si en el futuro se integra este panel con otro sistema.
 
 ---
 
