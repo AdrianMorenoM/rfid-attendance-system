@@ -1,9 +1,9 @@
 <div align="center">
 
-# 📇 Sistema de Control de Asistencia por RFID
-### Guía completa del proyecto, explicada en lenguaje sencillo
+# Sistema de Control de Asistencia por RFID
+### Guía del proyecto
 
-**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH)**
+**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo**
 
 **Ingeniería en Tecnologías de la Información y Comunicación**
 
