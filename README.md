@@ -29,7 +29,7 @@
 
 ---
 
-## 📖 Acerca de este documento
+## Acerca de este documento
 
 Este README explica, de manera clara y sin tecnicismos innecesarios, cómo funciona el Sistema de Control de Asistencia por RFID desarrollado durante el Servicio Social en el ITSOEH. Su propósito es que cualquier persona —sin importar si tiene o no formación en informática— pueda entender qué hace el sistema, cómo está construido, qué tan seguro es y qué se recomienda mejorar a futuro.
 
