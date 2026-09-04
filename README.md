@@ -4,6 +4,7 @@
 ### Guía completa del proyecto, explicada en lenguaje sencillo
 
 **Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH)**
+
 **Ingeniería en Tecnologías de la Información y Comunicación**
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
