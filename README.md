@@ -60,11 +60,11 @@ El contenido conserva todos los datos técnicos reales del proyecto (nombres de 
 
 ### 1.1 ¿Por qué se hizo este proyecto?
 
-Tomar la asistencia a mano —pasando lista o firmando en una hoja— es lento y da pie a errores: alguien puede firmar por otra persona, se pueden perder las hojas, o simplemente toma tiempo de c[...]
+Tomar la asistencia a mano es lento y da pie a errores: se pueden perder las hojas o simplemente toma tiempo de clase que podría usarse para enseñar. Para resolver esto, como parte de servicio social se diseñó un sistema que registra la asistencia de forma automática: cada estudiante acerca una tarjeta a un lector, el sistema reconoce quién es y guarda el registro al instante, sin que nadie tenga que escribir nada a mano.
 
 ### 1.2 Objetivo general
 
-Diseñar, construir y documentar un sistema de asistencia por RFID (identificación por radiofrecuencia, es decir, tarjetas que se leen sin contacto físico) que sea funcional, razonablemente segu[...]
+Diseñar, construir y documentar un sistema de asistencia por RFID (identificación por radiofrecuencia, es decir, tarjetas que se leen sin contacto físico) que sea funcional, razonablemente seguro y fácil de mantener para la carrera de ITIC's, de modo que sirva tanto para uso diario como para que otra persona pueda darle continuidad en el futuro.
 
 ### 1.3 Objetivos específicos
 
@@ -74,17 +74,17 @@ Diseñar, construir y documentar un sistema de asistencia por RFID (identificaci
 - Construir una pantalla de visualización en tiempo real con las cifras del día.
 - Hacer que el sistema se recupere solo ante fallas comunes, como una desconexión de red, y que quede constancia de quién hizo qué dentro del panel de administración.
 - Revisar la seguridad del sistema e identificar qué se podría mejorar.
-- Dejar todo documentado, para que el conocimiento no se pierda cuando termine el Servicio Social.
+- Dejar todo documentado, para que el conocimiento no se pierda.
 
 ### 1.4 ¿Qué tan grande es el sistema?
 
-El sistema funciona de manera local, dentro de la propia red del plantel: no depende de internet ni de ningún servicio externo para operar. Está pensado para un solo punto de lectura (un lector [...]
+El sistema funciona de manera local, dentro de la propia red del plantel: no depende de internet ni de ningún servicio externo para operar. Está pensado para un solo punto de lectura (un lector de tarjetas) y, tal como está configurado hoy, se usa únicamente para la carrera de Ingeniería en Tecnologías de la Información y Comunicación.
 
 ---
 
 ## 2. Cómo está organizado el sistema, en conjunto
 
-El sistema se compone de varias piezas que trabajan juntas, cada una con una responsabilidad clara. Pensarlo como una pequeña fábrica ayuda a entenderlo: una tarjeta llega a la "entrada" (el lec[...]
+El sistema se compone de varias piezas que trabajan juntas, cada una con una responsabilidad clara. Pensarlo como una pequeña fábrica ayuda a entenderlo: una tarjeta llega a la "entrada" (el lector), la información se guarda en un "almacén central" (la base de datos) y, desde ahí, distintas "ventanillas" muestran o permiten modificar esa información.
 
 ```mermaid
 flowchart TD
@@ -105,9 +105,9 @@ flowchart TD
 ```
 *Diagrama 1. Visión general del sistema — cómo se conectan sus piezas.*
 
-> **Punto importante:** como toda la información vive en un único archivo (la base de datos), ese archivo es el eslabón más delicado de todo el sistema. Si se dañara y no existiera un respal[...]
+> Punto importante: como toda la información vive en un único archivo (la base de datos), ese archivo es el eslabón más delicado de todo el sistema. Si se dañara y no existiera un respaldo reciente, todo el sistema quedaría "a ciegas" al mismo tiempo. Esta idea se retoma con más detalle en la sección 13.
 
-El panel administrativo (que escucha en el puerto de red 5001) sí es accesible desde otros equipos de la red local, mientras que el panel de visualización (puerto 5000) solo puede verse desde l[...]
+El panel administrativo (que escucha en el puerto de red 5001) sí es accesible desde otros equipos de la red local, mientras que el panel de visualización (puerto 5000) solo puede verse desde la propia Raspberry Pi —por ejemplo, en la pantalla física que eventualmente se conecte a ella—. Esta diferencia es intencional: reduce la cantidad de puntos desde los que alguien podría intentar acceder al sistema.
 
 ---
 
@@ -131,7 +131,7 @@ El sistema utiliza componentes electrónicos sencillos y económicos, elegidos p
 
 ### 3.2 Cómo se conecta el lector a la Raspberry Pi
 
-El lector RC522 se conecta mediante un estándar de comunicación llamado SPI (un protocolo de datos rápido usado entre módulos electrónicos cercanos), usando siete cables. La tabla siguiente [...]
+El lector RC522 se conecta mediante un estándar de comunicación llamado SPI (un protocolo de datos rápido usado entre módulos electrónicos cercanos), usando siete cables. La tabla siguiente indica exactamente qué pin del lector va a qué pin de la Raspberry Pi, información útil tanto para el montaje inicial como para una reparación futura.
 
 | Pin del lector RC522 | Función | Se conecta al pin físico de la Raspberry Pi |
 |---|---|---|
@@ -146,11 +146,11 @@ El lector RC522 se conecta mediante un estándar de comunicación llamado SPI (u
 
 *Tabla 2. Conexión física entre el lector RC522 y la Raspberry Pi 4.*
 
-> **Advertencia importante:** el lector trabaja con 3.3 voltios. Conectarlo por error a la salida de 5 voltios de la Raspberry Pi puede dañar de forma permanente tanto el lector como el p[...]
+> **Advertencia importante:** el lector trabaja con 3.3 voltios. Conectarlo por error a la salida de 5 voltios de la Raspberry Pi puede dañar de forma permanente tanto el lector como el propio equipo. El pin IRQ se deja sin usar a propósito, porque el programa revisa el lector cada 150 milisegundos por su cuenta, en lugar de esperar una señal del propio módulo.
 
 ### 3.3 Requisitos de energía
 
-La Raspberry Pi necesita una fuente oficial de 5 voltios y 3 amperes; usar un cargador de celular genérico puede provocar caídas de voltaje que, en el peor de los casos, corrompan la base de da[...]
+La Raspberry Pi necesita una fuente oficial de 5 voltios y 3 amperes; usar un cargador de celular genérico puede provocar caídas de voltaje que, en el peor de los casos, corrompan la base de datos si ocurren justo mientras se está guardando un registro. El lector consume muy poca energía (entre 13 y 30 miliamperes aproximadamente) y se alimenta directamente del propio riel de 3.3 voltios de la Raspberry Pi, por lo que no necesita una fuente aparte. En sitios donde el suministro eléctrico no sea confiable, se recomienda considerar un respaldo de energía pequeño (una batería tipo power bank, o UPS) para evitar cortes abruptos.
 
 ### 3.4 Cómo se monta físicamente
 
@@ -169,7 +169,7 @@ El montaje sigue un orden sencillo:
 
 ## 4. Qué hace el sistema cada vez que se acerca una tarjeta
 
-El programa que controla el lector revisa constantemente si hay una tarjeta cerca (cada 150 milisegundos, es decir, unas seis o siete veces por segundo). Cuando detecta una, sigue una serie de pr[...]
+El programa que controla el lector revisa constantemente si hay una tarjeta cerca (cada 150 milisegundos, es decir, unas seis o siete veces por segundo). Cuando detecta una, sigue una serie de preguntas, en este orden, para decidir qué hacer con ella:
 
 ```mermaid
 flowchart TD
@@ -194,21 +194,22 @@ flowchart TD
 ```
 *Diagrama 2. Lógica de decisión del lector ante cada tarjeta.*
 
-Para evitar que una sola pasada de tarjeta genere varios registros mientras la persona la retira del lector, el sistema ignora lecturas repetidas de la misma tarjeta durante dos segundos (a esto [...]
+Para evitar que una sola pasada de tarjeta genere varios registros mientras la persona la retira del lector, el sistema ignora lecturas repetidas de la misma tarjeta durante dos segundos (a esto se le llama, en electrónica, "anti-rebote" o *debounce*). Además, si el lector deja de responder por más de ocho segundos —una falla de comunicación, no la simple ausencia de tarjetas—, el sistema lo reinicia automáticamente, sin intervención humana.
 
 ### 4.1 Por qué el sistema solo lee el número de la tarjeta
 
-Las tarjetas que usa el sistema pueden guardar información en su interior protegida con una contraseña criptográfica, pero este proyecto no lee ni escribe esa información: únicamente lee el [...]
+Las tarjetas que usa el sistema pueden guardar información en su interior protegida con una contraseña criptográfica, pero este proyecto no lee ni escribe esa información: únicamente lee el número de identificación de fábrica de la tarjeta (su "UID"), que se obtiene en un paso anterior a cualquier verificación de contraseña. Esto es suficiente y razonable para control de asistencia, donde el riesgo es bajo, pero conviene ser honestos sobre su límite: existen tarjetas regrabables capaces de imitar el número de otra tarjeta, así que la seguridad del sistema descansa en que la lista de tarjetas válidas esté bien controlada administrativamente, no en una propiedad criptográfica de la tarjeta misma. Si en algún momento el sistema se usara para proteger algo de mayor valor que el registro de asistencia, valdría la pena migrar a un tipo de tarjeta con autenticación más fuerte.
 
 ### 4.2 Qué pasa si no hay lector conectado
 
-Si el programa se ejecuta en una computadora que no tiene el lector conectado (por ejemplo, durante pruebas o desarrollo), el sistema lo detecta automáticamente y simplemente se queda a la esper[...]
+Si el programa se ejecuta en una computadora que no tiene el lector conectado (por ejemplo, durante pruebas o desarrollo), el sistema lo detecta automáticamente y simplemente se queda a la espera, sin fallar ni generar errores. Es importante aclarar que este modo no simula lecturas de tarjetas: solo evita que el programa se caiga por falta de hardware.
+
 
 ---
 
 ## 5. Cómo está organizado el software
 
-El sistema está compuesto por tres programas principales, cada uno enfocado en una sola tarea, y dos programas de apoyo que corren en segundo plano. Separarlos así tiene una ventaja práctica: [...]
+El sistema está compuesto por tres programas principales, cada uno enfocado en una sola tarea, y dos programas de apoyo que corren en segundo plano. Separarlos así tiene una ventaja práctica: si uno falla, los demás pueden seguir funcionando (este punto se retoma en la sección 13).
 
 | Programa | Qué hace | Quién puede usarlo |
 |---|---|---|
