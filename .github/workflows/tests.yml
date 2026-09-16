@@ -24,14 +24,12 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements-ci.txt
 
-      - name: Crear .env para tests
-        run: |
-          echo "ADMIN_USER=admin" >> .env
-          echo "ADMIN_PASSWORD=admin12345" >> .env
-          echo "ALLOWED_SUBNET=disabled" >> .env
-          echo "ALLOW_HTTP_MIGRATIONS=true" >> .env
-
       - name: Correr tests
+        env:
+          ADMIN_USER: admin
+          ADMIN_PASSWORD: admin12345
+          ALLOWED_SUBNET: disabled
+          ALLOW_HTTP_MIGRATIONS: "true"
         run: |
           python -m pytest \
             shared/tests/test_reader.py \
@@ -49,3 +47,4 @@ jobs:
         with:
           name: coverage-report
           path: htmlcov/
+          
