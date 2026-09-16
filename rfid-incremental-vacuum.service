@@ -1,0 +1,9 @@
+[Unit]
+Description=RFID DB - incremental vacuum
+After=network.target
+
+[Service]
+Type=oneshot
+User=admin
+WorkingDirectory=/home/admin/rfid-system
+ExecStart=/home/admin/rfid-system/venv/bin/python /home/admin/rfid-system/shared/run_incremental_vacuum.py

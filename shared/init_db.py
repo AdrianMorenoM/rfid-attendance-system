@@ -9,6 +9,7 @@ DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rfid.db")
 SQL = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
+PRAGMA auto_vacuum=INCREMENTAL;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS estudiantes (

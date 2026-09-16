@@ -248,7 +248,15 @@ def api(f):
         try:
             return f(*args, **kwargs)
         except sqlite3.IntegrityError as e:
-            return jsonify({'success': False, 'error': str(e)}), 400
+            log.warning(f"IntegrityError en {f.__name__}: {e}")
+            msg = str(e)
+            if 'UNIQUE constraint failed' in msg:
+                error_msg = 'Ya existe un registro con ese valor único (posible duplicado).'
+            elif 'NOT NULL constraint failed' in msg:
+                error_msg = 'Faltan campos requeridos.'
+            else:
+                error_msg = 'Los datos no cumplen con las reglas de validación.'
+            return jsonify({'success': False, 'error': error_msg}), 400
         except Exception as e:
             log.exception(f"Error en {f.__name__}")
             return jsonify({'success': False, 'error': 'Error interno'}), 500
@@ -844,6 +852,23 @@ def software_database_status():
         'counts':        counts,
         'backups_count': len(backups),
     }})
+
+@app.route('/api/health/db')
+@api
+def api_health_db():
+    conn = get_db()
+    try:
+        rows = [r[0] for r in conn.execute("PRAGMA integrity_check").fetchall()]
+    finally:
+        conn.close()
+    healthy = (len(rows) == 1 and rows[0].lower() == 'ok')
+    status_code = 200 if healthy else 500
+    return jsonify({
+        'success': True,
+        'healthy': healthy,
+        'result':  rows,
+        'checked_at': datetime.now().isoformat(),
+    }), status_code
 
 def _list_backups() -> list[dict]:
     items = []
@@ -1447,7 +1472,9 @@ def actualizar_estudiante(est_id):
     conn = get_db()
     try:
         row_actual = conn.execute("SELECT foto FROM estudiantes WHERE id=? AND carrera=?", (est_id, CARRERA)).fetchone()
-        foto_actual = row_actual['foto'] if row_actual else None
+        if not row_actual:
+            return jsonify({'success': False, 'error': 'Estudiante no encontrado'}), 404
+        foto_actual = row_actual['foto']
         foto_nueva  = d.get('foto')
         conn.execute("UPDATE estudiantes SET nombre=?,apellido_paterno=?,apellido_materno=?,matricula=?,carrera=?,semestre=?,grupo=?,correo=?,estado=?,foto=? WHERE id=? AND carrera=?",
                      (d.get('nombre'), d.get('apellido_paterno'), d.get('apellido_materno'), d.get('matricula'), CARRERA, d.get('semestre'), d.get('grupo',''), d.get('correo'), d.get('estado'), foto_nueva, est_id, CARRERA))
@@ -1464,7 +1491,9 @@ def eliminar_estudiante(est_id):
     conn = get_db()
     try:
         row = conn.execute("SELECT foto FROM estudiantes WHERE id=? AND carrera=?", (est_id, CARRERA)).fetchone()
-        foto_actual = row['foto'] if row else None
+        if not row:
+            return jsonify({'success': False, 'error': 'Estudiante no encontrado'}), 404
+        foto_actual = row['foto']
         conn.execute("DELETE FROM estudiantes WHERE id=? AND carrera=?", (est_id, CARRERA))
         conn.commit()
     finally:
@@ -1642,6 +1671,9 @@ def actualizar_tarjeta(tarj_id):
     d = request.get_json(force=True)
     conn = get_db()
     try:
+        existe = conn.execute("SELECT id FROM tarjetas WHERE id=?", (tarj_id,)).fetchone()
+        if not existe:
+            return jsonify({'success': False, 'error': 'Tarjeta no encontrada'}), 404
         conn.execute("UPDATE tarjetas SET uid=?, id_estudiante=?, activa=? WHERE id=?", (d.get('uid'), d.get('id_estudiante') or None, int(d.get('activa', 1)), tarj_id))
         conn.commit()
     finally:
@@ -1653,6 +1685,9 @@ def actualizar_tarjeta(tarj_id):
 def eliminar_tarjeta(tarj_id):
     conn = get_db()
     try:
+        existe = conn.execute("SELECT id FROM tarjetas WHERE id=?", (tarj_id,)).fetchone()
+        if not existe:
+            return jsonify({'success': False, 'error': 'Tarjeta no encontrada'}), 404
         conn.execute("DELETE FROM tarjetas WHERE id=?", (tarj_id,))
         conn.commit()
     finally:

@@ -12,7 +12,11 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reader.log')),
+        logging.FileHandler(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reader.log'),
+            delay=True
+        )
+        #logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reader.log')),
     ]
 )
 log = logging.getLogger('rfid-reader')

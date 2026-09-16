@@ -6,3 +6,5 @@ __pycache__/
 .env
 shared/backups/
 crud/static/fotos/*
+*.log.*
+*.bak

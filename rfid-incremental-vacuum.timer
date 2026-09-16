@@ -1,0 +1,10 @@
+[Unit]
+Description=Ejecuta rfid-incremental-vacuum.service todos los días a las 03:30
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[run]
+omit =
+    shared/load_test.py
+    shared/smoke_test_api.py
+    shared/test_procesar.py
+    shared/migrate_auto_vacuum.py
+    shared/run_incremental_vacuum.py
+    shared/init_db.py
