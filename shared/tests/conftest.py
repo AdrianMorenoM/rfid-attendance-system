@@ -108,9 +108,11 @@ def crud_app(tmp_db, monkeypatch, tmp_path):
     monkeypatch.setenv("ALLOW_HTTP_MIGRATIONS", "true")
 
     import importlib, sys
+    # Limpiar AMBAS claves bajo las que puede estar registrado
     sys.modules.pop("app_crud", None)
+    sys.modules.pop("crud.app_crud", None)
     import app_crud as crud_module
-
+    
     crud_module.BASIC_AUTH_USER = "admin"
     crud_module.BASIC_AUTH_PASSWORD = "admin12345"
 
