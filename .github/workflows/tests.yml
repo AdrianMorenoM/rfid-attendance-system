@@ -9,11 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      ADMIN_USER: admin
-      ADMIN_PASSWORD: admin12345
-      ALLOWED_SUBNET: disabled
-      ALLOW_HTTP_MIGRATIONS: "true"
 
     steps:
       - name: Checkout
@@ -28,6 +23,13 @@ jobs:
 
       - name: Instalar dependencias
         run: pip install -r requirements-ci.txt
+
+      - name: Crear .env para tests
+        run: |
+          echo "ADMIN_USER=admin" >> .env
+          echo "ADMIN_PASSWORD=admin12345" >> .env
+          echo "ALLOWED_SUBNET=disabled" >> .env
+          echo "ALLOW_HTTP_MIGRATIONS=true" >> .env
 
       - name: Correr tests
         run: |
@@ -47,4 +49,3 @@ jobs:
         with:
           name: coverage-report
           path: htmlcov/
-          
