@@ -909,13 +909,30 @@ class TestHardwareEndpoints:
             assert 'enabled' in svc
             assert svc['name'] in RFID_SERVICES
 
-    @patch('crud.app_crud._run')
-    def test_service_action_restart_ok(self, mock_run, client):
-        mock_run.return_value = {
-            'success': True,
-            'stdout': 'active',
-            'stderr': ''
-        }
+    def test_service_action_restart_ok(self, crud_app, monkeypatch):
+        client, mod = crud_app
+
+        monkeypatch.setattr(
+            mod,
+            '_run',
+            lambda cmd, **kw: {
+                'success': True,
+                'stdout': 'active',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
+
+        monkeypatch.setattr(
+            mod,
+            '_systemctl',
+            lambda action, service: {
+                'success': True,
+                'stdout': '',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
 
         r = client.post(
             '/api/hardware/services/rfid-crud.service/restart',
@@ -928,13 +945,30 @@ class TestHardwareEndpoints:
         assert data['service'] == 'rfid-crud.service'
         assert data['action'] == 'restart'
 
-    @patch('crud.app_crud._run')
-    def test_service_action_start_ok(self, mock_run, client):
-        mock_run.return_value = {
-            'success': True,
-            'stdout': 'active',
-            'stderr': ''
-        }
+    def test_service_action_start_ok(self, crud_app, monkeypatch):
+        client, mod = crud_app
+
+        monkeypatch.setattr(
+            mod,
+            '_run',
+            lambda cmd, **kw: {
+                'success': True,
+                'stdout': 'active',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
+
+        monkeypatch.setattr(
+            mod,
+            '_systemctl',
+            lambda action, service: {
+                'success': True,
+                'stdout': '',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
 
         r = client.post(
             '/api/hardware/services/rfid-reader.service/start',
@@ -943,13 +977,30 @@ class TestHardwareEndpoints:
 
         assert r.status_code == 200
 
-    @patch('crud.app_crud._run')
-    def test_service_action_stop_ok(self, mock_run, client):
-        mock_run.return_value = {
-            'success': True,
-            'stdout': 'inactive',
-            'stderr': ''
-        }
+    def test_service_action_stop_ok(self, crud_app, monkeypatch):
+        client, mod = crud_app
+
+        monkeypatch.setattr(
+            mod,
+            '_run',
+            lambda cmd, **kw: {
+                'success': True,
+                'stdout': 'inactive',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
+
+        monkeypatch.setattr(
+            mod,
+            '_systemctl',
+            lambda action, service: {
+                'success': True,
+                'stdout': '',
+                'stderr': '',
+                'returncode': 0,
+            }
+        )
 
         r = client.post(
             '/api/hardware/services/rfid-dashboard.service/stop',
