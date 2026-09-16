@@ -14,3 +14,4 @@ Werkzeug==3.1.8
 wrapt==2.3.0
 pytest
 pytest-cov
+pillow==12.3.0
