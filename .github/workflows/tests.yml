@@ -9,6 +9,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: admin12345
+      ALLOWED_SUBNET: disabled
+      ALLOW_HTTP_MIGRATIONS: "true"
 
     steps:
       - name: Checkout
@@ -42,3 +47,4 @@ jobs:
         with:
           name: coverage-report
           path: htmlcov/
+          
