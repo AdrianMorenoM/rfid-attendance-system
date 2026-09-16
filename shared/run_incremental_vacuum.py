@@ -42,7 +42,7 @@ def main():
         if auto_vacuum != 2:
             log.warning(
                 "auto_vacuum no está en INCREMENTAL (valor actual=%s). "
-                "Ejecuta primero shared/migrate_auto_vacuum.py.", auto_vacuum
+                "La base de datos debe configurarse con auto_vacuum=INCREMENTAL.", auto_vacuum
             )
             return
 

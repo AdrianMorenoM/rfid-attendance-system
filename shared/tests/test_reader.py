@@ -250,3 +250,52 @@ class TestLeerUID:
 
         resultado = reader_mod.leer_uid(mock_reader)
         assert resultado is None
+
+# ────────────────────────────────────────────────────────────────────────────
+# Ramas de error no cubiertas
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestRamasError:
+
+    def test_rfid_ok_true_cuando_hardware_disponible(self, tmp_db, tmp_path, monkeypatch):
+        """Simula que mfrc522 y RPi.GPIO sí se importan — RFID_OK = True."""
+        import sys, importlib
+
+        mfrc522_mock = MagicMock()
+        gpio_mock    = MagicMock()
+
+        # Esta vez los módulos existen desde el inicio
+        monkeypatch.setitem(sys.modules, "mfrc522",  mfrc522_mock)
+        monkeypatch.setitem(sys.modules, "RPi",      gpio_mock)
+        monkeypatch.setitem(sys.modules, "RPi.GPIO", gpio_mock)
+
+        # mfrc522.MFRC522 es importable → RFID_OK = True
+        mfrc522_mock.MFRC522 = MagicMock()
+
+        import rfid_reader as mod
+        importlib.reload(mod)
+
+        mod.DB         = tmp_db
+        mod.ADMIN_FLAG = str(tmp_path / "rfid_admin_mode")
+        mod.ADMIN_UID_FILE = str(tmp_path / "rfid_admin_uid")
+        mod.STATUS_FILE    = str(tmp_path / "rfid_reader_status")
+
+        assert mod.RFID_OK is True
+
+    def test_escribir_estado_falla_gracefully(self, reader_mod):
+        """_escribir_estado con ruta imposible ejecuta el except."""
+        original = reader_mod.STATUS_FILE
+        reader_mod.STATUS_FILE = "/ruta/imposible/xyz/status"
+        try:
+            reader_mod._escribir_estado("ok")
+        finally:
+            reader_mod.STATUS_FILE = original
+
+    def test_notificar_admin_falla_gracefully(self, reader_mod):
+        """_notificar_admin_scan con ruta imposible ejecuta el except."""
+        original = reader_mod.ADMIN_UID_FILE
+        reader_mod.ADMIN_UID_FILE = "/ruta/imposible/xyz/uid"
+        try:
+            reader_mod._notificar_admin_scan("TESTUID")
+        finally:
+            reader_mod.ADMIN_UID_FILE = original

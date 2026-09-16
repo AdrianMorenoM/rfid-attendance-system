@@ -16,13 +16,45 @@ Ejecutar toda la suite incluyendo smoke:
     pytest shared/tests/ -v --tb=short
 """
 import os, json, base64, pytest
+from pathlib import Path
 import urllib.request, urllib.error
 
 # ── Configuración ────────────────────────────────────────────────────────────
 CRUD_BASE      = os.environ.get("RFID_CRUD_URL",      "http://localhost:5001")
 DASH_BASE      = os.environ.get("RFID_DASH_URL",      "http://localhost:5000")
-ADMIN_USER     = os.environ.get("ADMIN_USER",          "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD",      "changeme")
+def _load_project_env():
+    """Carga variables simples desde el .env del proyecto sin exponer secretos."""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+
+    if not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text().splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        # No sobrescribir variables que el usuario haya definido explícitamente.
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_project_env()
+
+ADMIN_USER = os.environ.get("ADMIN_USER")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+if not ADMIN_USER or not ADMIN_PASSWORD:
+    pytest.exit(
+        "Smoke requiere ADMIN_USER y ADMIN_PASSWORD. "
+        "Defínelas en el entorno o en ~/rfid-system/.env.",
+        returncode=2,
+    )
 TIMEOUT        = int(os.environ.get("RFID_SMOKE_TIMEOUT", "5"))
 
 
@@ -48,17 +80,29 @@ def _post(url, body=None, headers=None, timeout=TIMEOUT):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def _is_up(base_url) -> bool:
+def _is_up(base_url, headers=None) -> bool:
     try:
-        urllib.request.urlopen(base_url, timeout=2)
+        req = urllib.request.Request(
+            f"{base_url}/api/health/db",
+            headers=headers or {},
+        )
+        urllib.request.urlopen(req, timeout=2)
         return True
+    except urllib.error.HTTPError as e:
+        # 401/403 significan que el servicio está disponible
+        return e.code in (401, 403)
     except Exception:
         return False
 
-
 # ── Marcadores de skip si el servicio está caído ─────────────────────────────
-crud_up  = pytest.mark.skipif(not _is_up(CRUD_BASE),  reason="rfid-crud no disponible")
-dash_up  = pytest.mark.skipif(not _is_up(DASH_BASE),  reason="rfid-dashboard no disponible")
+crud_up  = pytest.mark.skipif(
+    not _is_up(CRUD_BASE, _AUTH_HEADER),
+    reason="rfid-crud no disponible",
+)
+dash_up  = pytest.mark.skipif(
+    not _is_up(DASH_BASE),
+    reason="rfid-dashboard no disponible",
+)
 
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -22,12 +22,12 @@ logging.basicConfig(
 log = logging.getLogger('rfid-reader')
 
 # Hardware
-try:
+try:  # pragma: no cover
     from mfrc522 import MFRC522
     import RPi.GPIO as GPIO
     RFID_OK = True
     log.info("Hardware RC522 detectado")
-except ImportError:
+except ImportError:  # pragma: no cover
     RFID_OK = False
     log.warning("mfrc522 / RPi.GPIO no disponibles — modo simulación")
 
@@ -52,7 +52,7 @@ def _escribir_estado(estado: str) -> None:
         os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
         with open(STATUS_FILE, "w") as f:
             f.write(f"{estado}\t{datetime.now().isoformat()}\n")
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         log.warning(f"No se pudo escribir status file: {exc}")
 
 # DB helper
@@ -75,7 +75,7 @@ def _notificar_admin_scan(uid_s: str) -> None:
         with open(ADMIN_UID_FILE, "w") as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             f.write(f"{ts}\t{uid_s}\n")
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         log.warning(f"No se pudo escribir admin uid file: {exc}")
 
 # Lectura de UID (Request + Anticollision, sin autenticar)
@@ -154,12 +154,12 @@ def cleanup(sig=None, _frame=None):
         try: os.remove(f)
         except FileNotFoundError: pass
     if RFID_OK:
-        try: GPIO.cleanup()
-        except Exception: pass
+        try: GPIO.cleanup()  # pragma: no cover
+        except Exception: pass  # pragma: no cover
     sys.exit(0)
 
 # Main loop
-def main():
+def main():  # pragma: no cover
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT,  cleanup)
 
@@ -223,5 +223,5 @@ def main():
             _escribir_estado("error")
             time.sleep(1)
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

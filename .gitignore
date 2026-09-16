@@ -8,3 +8,11 @@ shared/backups/
 crud/static/fotos/*
 *.log.*
 *.bak
+
+# Cobertura y artefactos de pruebas
+.coverage
+.coverage.*
+.pytest_cache/
+**/.pytest_cache/
+htmlcov/
+**/htmlcov/

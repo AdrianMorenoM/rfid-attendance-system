@@ -103,7 +103,7 @@ def tmp_db(tmp_path):
 @pytest.fixture(scope="function")
 def crud_app(tmp_db, monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_USER", "admin")
-    monkeypatch.setenv("ADMIN_PASSWORD", "admin12345")
+    monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("ALLOWED_SUBNET", "disabled")
     monkeypatch.setenv("ALLOW_HTTP_MIGRATIONS", "true")
 
@@ -114,7 +114,7 @@ def crud_app(tmp_db, monkeypatch, tmp_path):
     import app_crud as crud_module
     
     crud_module.BASIC_AUTH_USER = "admin"
-    crud_module.BASIC_AUTH_PASSWORD = "admin12345"
+    crud_module.BASIC_AUTH_PASSWORD = "test-admin-password"
 
     crud_module.DB = tmp_db
     crud_module.BACKUP_DIR = str(tmp_path / "backups")
@@ -140,9 +140,19 @@ def dash_app(tmp_db, monkeypatch):
         yield client, dash_module
 
 
-def basic_auth_headers(user="admin", password="admin12345") -> dict:
+def basic_auth_headers(user="admin", password="test-admin-password") -> dict:
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {
         "Authorization": f"Basic {token}",
         "X-Requested-With": "XMLHttpRequest",
     }
+
+@pytest.fixture
+def client(crud_app):
+    client, module = crud_app
+    return client
+
+@pytest.fixture
+def db(crud_app):
+    client, module = crud_app
+    return module.DB

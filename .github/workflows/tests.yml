@@ -27,17 +27,16 @@ jobs:
       - name: Correr tests
         env:
           ADMIN_USER: admin
-          ADMIN_PASSWORD: admin12345
+          ADMIN_PASSWORD: test-admin-password
           ALLOWED_SUBNET: disabled
           ALLOW_HTTP_MIGRATIONS: "true"
         run: |
-          python -m pytest \
-            shared/tests/test_reader.py \
-            shared/tests/test_reader_extended.py \
-            shared/tests/test_crud_api.py \
-            shared/tests/test_dashboard_y_db.py \
+          python -m pytest shared/tests \
+            --ignore=shared/tests/test_smoke.py \
             --tb=short \
-            --cov=. \
+            --cov=crud \
+            --cov=dashboard \
+            --cov=shared \
             --cov-report=term-missing \
             -v
 
