@@ -111,6 +111,9 @@ def crud_app(tmp_db, monkeypatch, tmp_path):
     sys.modules.pop("app_crud", None)
     import app_crud as crud_module
 
+    crud_module.BASIC_AUTH_USER = "admin"
+    crud_module.BASIC_AUTH_PASSWORD = "admin12345"
+
     crud_module.DB = tmp_db
     crud_module.BACKUP_DIR = str(tmp_path / "backups")
     os.makedirs(crud_module.BACKUP_DIR, exist_ok=True)
