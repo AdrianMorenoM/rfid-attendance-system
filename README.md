@@ -6,13 +6,13 @@
 **Instituto Tecnológico Superior del Occidente del Estado de Hidalgo**  
 **Ingeniería en Tecnologías de la Información y Comunicaciones**
 
-![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
-![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-4-C51A4A?logo=raspberrypi&logoColor=white)
-![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)
-![Gunicorn](https://img.shields.io/badge/Gunicorn-26.0-499848?logo=gunicorn&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-WAL%20mode-003B57?logo=sqlite&logoColor=white)
-![Estado](https://img.shields.io/badge/Estado-Producci%C3%B3n-success)
-![Tests](https://img.shields.io/badge/Tests-pytest-blue?logo=pytest)
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-4-C51A4A?logo=raspberrypi&logoColor=white)](https://www.raspberrypi.com/)
+[![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![Gunicorn](https://img.shields.io/badge/Gunicorn-26.0-499848?logo=gunicorn&logoColor=white)](https://gunicorn.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL%20mode-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/wal.html)
+[![Estado](https://img.shields.io/badge/Estado-Producci%C3%B3n-success)](https://github.com/tu-usuario/tu-repo)
+[![Tests](https://img.shields.io/badge/Tests-pytest-blue?logo=pytest)](https://docs.pytest.org/)
 
 </div>
 
