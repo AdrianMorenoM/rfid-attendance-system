@@ -37,7 +37,6 @@ DB         = os.path.join(BASE_DIR, "rfid.db")
 DEBOUNCE_S = 2
 SPI_SPEED  = 1_000_000
 POLL_S     = 0.15
-REINIT_TIMEOUT = 8  # segundos sin ninguna lectura antes de reiniciar el chip
 
 # Archivos de señal para modo admin
 ADMIN_FLAG     = "/run/rfid-shared/rfid_admin_mode"
@@ -175,9 +174,6 @@ def main():  # pragma: no cover
     reader = MFRC522()
     ultimo_uid = None
     ultimo_t   = 0.0
-    ultima_lectura_ok = time.time()
-    reinicios = 0
-
     _escribir_estado("ok")
     log.info("Listo — acerca una tarjeta...")
 
@@ -185,18 +181,8 @@ def main():  # pragma: no cover
         try:
             uid_s = leer_uid(reader)
             if uid_s is None:
-                if time.time() - ultima_lectura_ok > REINIT_TIMEOUT:
-                    reinicios += 1
-                    log.warning(f"Sin actividad del lector ({REINIT_TIMEOUT}s), "
-                                f"reinicializando RC522… (reinicio #{reinicios})")
-                    _escribir_estado("reiniciando")
-                    reader.MFRC522_Init()
-                    ultima_lectura_ok = time.time()
-                    _escribir_estado("ok")
                 time.sleep(POLL_S)
                 continue
-
-            ultima_lectura_ok = time.time()
 
             ahora = time.time()
             if uid_s == ultimo_uid and (ahora - ultimo_t) < DEBOUNCE_S:

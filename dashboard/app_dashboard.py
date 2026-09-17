@@ -99,7 +99,7 @@ def api_estado():
         eventos = []
         for r in evs:
             r = dict(r)
-            nombre = f"{r.get('nombre','')} {r.get('apellido_paterno','') or ''}".strip() or 'DESCONOCIDO'
+            nombre = f"{r.get('nombre') or ''} {r.get('apellido_paterno') or ''}".strip() or 'DESCONOCIDO'
             eventos.append({
                 'id':       r['id'],
                 'uid':      r['uid'],
@@ -158,7 +158,7 @@ def ultimo_evento():
         if not row:
             return jsonify({'success':True,'evento':None})
         r = dict(row)
-        nombre = f"{r.get('nombre','')} {r.get('apellido_paterno','') or ''}".strip() or 'DESCONOCIDO'
+        nombre = f"{r.get('nombre') or ''} {r.get('apellido_paterno') or ''}".strip() or 'DESCONOCIDO'
         return jsonify({'success':True,'evento':{
             'id':       r['id'],
             'uid':      r['uid'],
