@@ -1,16 +1,18 @@
 <div align="center">
 
 # Sistema de Control de Asistencia por RFID
-### Guía completa del proyecto, explicada en lenguaje sencillo
+### Documentación técnica completa · ITSOEH — ITIC's
 
-**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH)**
-**Ingeniería en Tecnologías de la Información y Comunicación**
+**Instituto Tecnológico Superior del Occidente del Estado de Hidalgo**  
+**Ingeniería en Tecnologías de la Información y Comunicaciones**
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-4-C51A4A?logo=raspberrypi&logoColor=white)
-![Flask](https://img.shields.io/badge/Flask-Gunicorn-000000?logo=flask&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)
+![Gunicorn](https://img.shields.io/badge/Gunicorn-26.0-499848?logo=gunicorn&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20mode-003B57?logo=sqlite&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Producci%C3%B3n-success)
+![Tests](https://img.shields.io/badge/Tests-pytest-blue?logo=pytest)
 
 </div>
 
@@ -24,524 +26,722 @@
 > | **Matrícula** | 22011747 |
 > | **Asesor** | José Martín Oropeza Méndez |
 > | **Modalidad** | Servicio Social |
-> | **Fecha del reporte original** | 18 de junio de 2026 (actualizado a agosto de 2026) |
+> | **Última actualización** | Septiembre 2026 |
 
 ---
-
-## Acerca de este documento
-
-Este README explica, de manera clara y sin tecnicismos innecesarios, cómo funciona el Sistema de Control de Asistencia por RFID desarrollado durante el Servicio Social en el ITSOEH. Su propósito es que cualquier persona —sin importar si tiene o no formación en informática— pueda entender qué hace el sistema, cómo está construido, qué tan seguro es y qué se recomienda mejorar a futuro.
-
-El contenido conserva todos los datos técnicos reales del proyecto (nombres de archivos, tablas de la base de datos, tiempos de respuesta, hallazgos de seguridad, etc.), pero los explica con analogías y palabras cotidianas siempre que es posible. Cuando un término técnico es indispensable, se explica la primera vez que aparece y se incluye también en el glosario (sección 15). Los diagramas de este documento están hechos con Mermaid, un formato de texto que GitHub dibuja automáticamente como diagrama — no son imágenes sueltas, así que se mantienen legibles y editables junto con el resto del texto.
 
 ## Tabla de contenido
 
-1. [Introducción y objetivos](#1-introducción-y-objetivos)
-2. [Cómo está organizado el sistema, en conjunto](#2-cómo-está-organizado-el-sistema-en-conjunto)
-3. [El hardware: las piezas físicas](#3-el-hardware-las-piezas-físicas-del-sistema)
-4. [Qué hace el sistema cuando se acerca una tarjeta](#4-qué-hace-el-sistema-cada-vez-que-se-acerca-una-tarjeta)
-5. [Cómo está organizado el software](#5-cómo-está-organizado-el-software)
-6. [La base de datos](#6-la-base-de-datos-qué-información-se-guarda-y-cómo)
-7. [El panel administrativo](#7-el-panel-administrativo-qué-se-puede-hacer-desde-ahí)
-8. [El recorrido de un dato: de la tarjeta a la pantalla](#8-el-recorrido-completo-de-un-dato-de-la-tarjeta-a-la-pantalla)
-9. [El panel de visualización en tiempo real](#9-el-panel-de-visualización-en-tiempo-real)
-10. [Exportación de reportes y actualización del sistema](#10-exportación-de-reportes-y-actualización-del-sistema)
-11. [Registros y bitácoras](#11-registros-y-bitácoras-del-sistema)
-12. [Seguridad del sistema](#12-seguridad-del-sistema)
-13. [¿Qué pasa si algo falla?](#13-qué-pasa-si-algo-falla)
-14. [Conclusiones y recomendaciones](#14-conclusiones-y-recomendaciones)
-15. [Glosario de términos](#15-glosario-de-términos)
-16. [Referencias](#16-referencias)
+1. [Descripción general](#1-descripción-general)
+2. [Arquitectura del sistema](#2-arquitectura-del-sistema)
+3. [Estructura del repositorio](#3-estructura-del-repositorio)
+4. [Requisitos de hardware](#4-requisitos-de-hardware)
+5. [Instalación y puesta en marcha](#5-instalación-y-puesta-en-marcha)
+6. [Configuración](#6-configuración)
+7. [Servicios systemd](#7-servicios-systemd)
+8. [Base de datos](#8-base-de-datos)
+9. [API — referencia rápida](#9-api--referencia-rápida)
+10. [Seguridad](#10-seguridad)
+11. [Pruebas](#11-pruebas)
+12. [Mantenimiento y operación](#12-mantenimiento-y-operación)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Glosario](#14-glosario)
 
 ---
 
-## 1. Introducción y objetivos
+## 1. Descripción general
 
-### 1.1 ¿Por qué se hizo este proyecto?
+Sistema completo de control de asistencia mediante tarjetas RFID, desarrollado sobre **Raspberry Pi 4 + lector RC522**, que automatiza el registro de entradas sin intervención manual. Cada estudiante acerca su tarjeta al lector; el sistema la identifica, decide si el acceso es válido y guarda el evento en una base de datos local SQLite en modo WAL.
 
-Tomar la asistencia a mano —pasando lista o firmando en una hoja— es lento y da pie a errores: alguien puede firmar por otra persona, se pueden perder las hojas, o simplemente toma tiempo de clase que podría usarse para enseñar. Para resolver esto, como parte del Servicio Social se diseñó e implementó un sistema que registra la asistencia de forma automática: cada estudiante acerca una tarjeta a un lector, el sistema reconoce quién es y guarda el registro al instante, sin que nadie tenga que escribir nada a mano.
+El sistema está compuesto por **tres servicios independientes** más dos procesos de apoyo:
 
-### 1.2 Objetivo general
-
-Diseñar, construir y documentar un sistema de asistencia por RFID (identificación por radiofrecuencia, es decir, tarjetas que se leen sin contacto físico) que sea funcional, razonablemente seguro y fácil de mantener para el ITSOEH, de modo que sirva tanto para uso diario como para que otra persona pueda darle continuidad en el futuro.
-
-### 1.3 Objetivos específicos
-
-- Leer tarjetas RFID mediante un lector físico conectado a una computadora pequeña (una Raspberry Pi 4).
-- Guardar de forma ordenada la información de los estudiantes, sus tarjetas y cada registro de asistencia.
-- Construir un panel de administración desde el cual dar de alta y baja estudiantes y tarjetas, y exportar la información.
-- Construir una pantalla de visualización en tiempo real con las cifras del día.
-- Hacer que el sistema se recupere solo ante fallas comunes, como una desconexión de red, y que quede constancia de quién hizo qué dentro del panel de administración.
-- Revisar la seguridad del sistema e identificar qué se podría mejorar.
-- Dejar todo documentado, para que el conocimiento no se pierda cuando termine el Servicio Social.
-
-### 1.4 ¿Qué tan grande es el sistema?
-
-El sistema funciona de manera local, dentro de la propia red del plantel: no depende de internet ni de ningún servicio externo para operar. Está pensado para un solo punto de lectura (un lector de tarjetas) y, tal como está configurado hoy, se usa únicamente para la carrera de Ingeniería en Tecnologías de la Información y Comunicación.
+| Servicio | Puerto | Descripción |
+|---|---|---|
+| `rfid-reader` | — | Lee tarjetas via SPI, aplica lógica de acceso, escribe en la DB |
+| `rfid-crud` | 5001 | Panel administrativo Flask — CRUD completo, API REST, gestión de hardware |
+| `rfid-dashboard` | 5000 | Dashboard de visualización en tiempo real (solo lectura) |
+| `network-watchdog` | — | Reconecta Wi-Fi automáticamente ante caídas de conectividad |
+| `rfid-incremental-vacuum` | — | Timer diario a las 03:30 h que ejecuta VACUUM INCREMENTAL en la DB |
 
 ---
 
-## 2. Cómo está organizado el sistema, en conjunto
+## 2. Arquitectura del sistema
 
-El sistema se compone de varias piezas que trabajan juntas, cada una con una responsabilidad clara. Pensarlo como una pequeña fábrica ayuda a entenderlo: una tarjeta llega a la "entrada" (el lector), la información se guarda en un "almacén central" (la base de datos) y, desde ahí, distintas "ventanillas" muestran o permiten modificar esa información.
-
-```mermaid
-flowchart TD
-    A["Tarjeta RFID<br/>(la trae el estudiante)"] --> B["Lector RC522 + Raspberry Pi<br/>servicio: rfid-reader<br/>(corre como administrador)"]
-    B -->|"guarda cada lectura"| C[("rfid.db<br/>Base de datos SQLite<br/>ÚNICO punto de falla")]
-    C -->|"lee y escribe"| D["Panel administrativo<br/>servicio: rfid-crud<br/>accesible en toda la red local"]
-    C -->|"solo lectura"| E["Panel de visualización<br/>servicio: rfid-dashboard<br/>solo accesible en la propia Pi"]
-    E --> F["Pantalla física (kiosco)<br/>previsto a futuro"]
-    G["Vigilante de red<br/>reconecta el Wi-Fi solo"] -.->|"vigila la conexión"| B
-    D -->|"respalda periódicamente"| H[("Respaldos<br/>carpeta backups/")]
-
-    classDef db fill:#16A085,stroke:#0e6655,color:#fff
-    classDef svc fill:#2980B9,stroke:#1b4f72,color:#fff
-    classDef ext fill:#7F8C8D,stroke:#4d5656,color:#fff
-    class C db
-    class B,D,E svc
-    class A,F,G,H ext
 ```
-*Diagrama 1. Visión general del sistema — cómo se conectan sus piezas.*
-
-> **Punto importante:** como toda la información vive en un único archivo (la base de datos), ese archivo es el eslabón más delicado de todo el sistema. Si se dañara y no existiera un respaldo reciente, todo el sistema quedaría "a ciegas" al mismo tiempo. Esta idea se retoma con más detalle en la sección 13.
-
-El panel administrativo (que escucha en el puerto de red 5001) sí es accesible desde otros equipos de la red local, mientras que el panel de visualización (puerto 5000) solo puede verse desde la propia Raspberry Pi —por ejemplo, en la pantalla física que eventualmente se conecte a ella—. Esta diferencia es intencional: reduce la cantidad de puntos desde los que alguien podría intentar acceder al sistema.
-
----
-
-## 3. El hardware: las piezas físicas del sistema
-
-El sistema utiliza componentes electrónicos sencillos y económicos, elegidos porque son suficientes para esta tarea y fáciles de conseguir y reemplazar.
-
-### 3.1 Lista de materiales
-
-| Componente | ¿Para qué sirve? | Cantidad |
-|---|---|---|
-| Raspberry Pi 4 Model B | Es la computadora que corre todo el sistema (el lector, el panel administrativo y el panel de visualización). | 1 |
-| Lector RFID RC522 | Detecta las tarjetas cuando se acercan y lee su número de identificación. | 1 |
-| Tarjetas o llaveros MIFARE | Es lo que cada estudiante presenta ante el lector. | Una por usuario |
-| Tarjeta microSD (16 GB o más, clase 10) | Guarda el sistema operativo, la base de datos y los archivos de registro. | 1 |
-| Fuente de alimentación oficial de 5 V / 3 A (USB-C) | Alimenta tanto a la Raspberry Pi como al lector. | 1 |
-| Cables tipo Dupont (hembra-hembra) | Conectan el lector a la Raspberry Pi. | 7 |
-| Gabinete ventilado con acceso al conector de pines | Protege el equipo y permite el cableado hacia el lector. | 1 |
-
-*Tabla 1. Materiales utilizados para construir el sistema.*
-
-### 3.2 Cómo se conecta el lector a la Raspberry Pi
-
-El lector RC522 se conecta mediante un estándar de comunicación llamado SPI (un protocolo de datos rápido usado entre módulos electrónicos cercanos), usando siete cables. La tabla siguiente indica exactamente qué pin del lector va a qué pin de la Raspberry Pi, información útil tanto para el montaje inicial como para una reparación futura.
-
-| Pin del lector RC522 | Función | Se conecta al pin físico de la Raspberry Pi |
-|---|---|---|
-| 3.3V | Alimentación (energía) | Pin 1 |
-| RST | Reinicio del módulo | Pin 22 |
-| GND | Tierra (referencia eléctrica común) | Pin 6 |
-| IRQ | No se usa en este proyecto | Sin conectar |
-| MISO | Envío de datos del lector hacia la Pi | Pin 21 |
-| MOSI | Envío de datos de la Pi hacia el lector | Pin 19 |
-| SCK | Señal de reloj (sincroniza la comunicación) | Pin 23 |
-| SDA / SS | Selección del dispositivo | Pin 24 |
-
-*Tabla 2. Conexión física entre el lector RC522 y la Raspberry Pi 4.*
-
-> **Advertencia importante:** el lector trabaja con 3.3 voltios. Conectarlo por error a la salida de 5 voltios de la Raspberry Pi puede dañar de forma permanente tanto el lector como el propio equipo. El pin IRQ se deja sin usar a propósito, porque el programa revisa el lector cada 150 milisegundos por su cuenta, en lugar de esperar una señal del propio módulo.
-
-### 3.3 Requisitos de energía
-
-La Raspberry Pi necesita una fuente oficial de 5 voltios y 3 amperes; usar un cargador de celular genérico puede provocar caídas de voltaje que, en el peor de los casos, corrompan la base de datos si ocurren justo mientras se está guardando un registro. El lector consume muy poca energía (entre 13 y 30 miliamperes aproximadamente) y se alimenta directamente del propio riel de 3.3 voltios de la Raspberry Pi, por lo que no necesita una fuente aparte. En sitios donde el suministro eléctrico no sea confiable, se recomienda considerar un respaldo de energía pequeño (una batería tipo power bank, o UPS) para evitar cortes abruptos.
-
-### 3.4 Cómo se monta físicamente
-
-El montaje sigue un orden sencillo:
-
-1. Se prepara la tarjeta microSD con el sistema operativo ya instalado.
-2. Se fija la Raspberry Pi dentro del gabinete, dejando accesible el conector de pines.
-3. Se cablea el lector siguiendo la Tabla 2, cuidando que cada cable quede bien insertado, ya que una conexión floja es la causa más común de lecturas fallidas.
-4. El lector se coloca lejos de superficies metálicas (tornillos, chasis, la propia fuente de alimentación), porque el metal cercano reduce mucho su alcance de lectura.
-5. Se orienta el lector hacia el punto donde la persona acercará su tarjeta, dejando un pequeño espacio libre frente a él.
-6. Se aseguran los cables con cinta o una brida para que no se aflojen por el uso diario.
-7. Se conecta la alimentación solo hasta el final, después de revisar que todo el cableado esté correcto.
-8. Antes de cerrar el gabinete definitivamente, se comprueba que el sistema esté funcionando con una lectura de prueba.
-
----
-
-## 4. Qué hace el sistema cada vez que se acerca una tarjeta
-
-El programa que controla el lector revisa constantemente si hay una tarjeta cerca (cada 150 milisegundos, es decir, unas seis o siete veces por segundo). Cuando detecta una, sigue una serie de preguntas, en este orden, para decidir qué hacer con ella:
-
-```mermaid
-flowchart TD
-    A["Tarjeta detectada<br/>(se lee su número, UID)"] --> B{"¿Modo alta de<br/>tarjeta nueva activo?"}
-    B -->|Sí| C["Se captura el número<br/>para darla de alta<br/>(no cuenta como asistencia)"]
-    B -->|No| D{"¿El número ya está<br/>registrado en el sistema?"}
-    D -->|No| E["Rebote<br/>'tarjeta no reconocida'"]
-    D -->|Sí| F{"¿Tarjeta y estudiante<br/>están activos?"}
-    F -->|No| G["Rebote<br/>'tarjeta o estudiante inactivo'"]
-    F -->|Sí| H{"¿Ya se registró su<br/>entrada hoy?"}
-    H -->|No, es la primera vez hoy| I["Aceptado<br/>cuenta como asistencia"]
-    H -->|Sí, ya había pasado hoy| J["Ya escaneado<br/>no duplica la asistencia"]
-
-    classDef ok fill:#27AE60,stroke:#196f3d,color:#fff
-    classDef bad fill:#C0392B,stroke:#78281f,color:#fff
-    classDef warn fill:#E67E22,stroke:#9c4a12,color:#fff
-    classDef neutral fill:#7F8C8D,stroke:#4d5656,color:#fff
-    class I ok
-    class E,G bad
-    class J warn
-    class C neutral
+┌─────────────────────────────────────────────────────────┐
+│                     Raspberry Pi 4                      │
+│                                                         │
+│  ┌──────────────┐    ┌──────────────┐  ┌─────────────┐ │
+│  │ rfid-reader  │    │  rfid-crud   │  │rfid-dashboard│ │
+│  │  (root/SPI)  │    │  :5001       │  │  :5000      │ │
+│  └──────┬───────┘    └──────┬───────┘  └──────┬──────┘ │
+│         │                   │                  │        │
+│         └───────────────────┼──────────────────┘        │
+│                             │                           │
+│                     ┌───────▼────────┐                  │
+│                     │   rfid.db      │                  │
+│                     │  (SQLite WAL)  │                  │
+│                     └───────────────┘                   │
+│                                                         │
+│  ┌────────────────────┐   ┌──────────────────────────┐  │
+│  │  network-watchdog  │   │ rfid-incremental-vacuum  │  │
+│  │  (bash, 30s loop)  │   │ (timer: diario 03:30 h)  │  │
+│  └────────────────────┘   └──────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
-*Diagrama 2. Lógica de decisión del lector ante cada tarjeta.*
 
-Para evitar que una sola pasada de tarjeta genere varios registros mientras la persona la retira del lector, el sistema ignora lecturas repetidas de la misma tarjeta durante dos segundos (a esto se le llama, en electrónica, "anti-rebote" o *debounce*). Además, si el lector deja de responder por más de ocho segundos —una falla de comunicación, no la simple ausencia de tarjetas—, el sistema lo reinicia automáticamente, sin intervención humana.
+**Comunicación entre reader y CRUD (modo admin-scan):**  
+Se usan archivos de señal en `/run/rfid-shared/`:
 
-### 4.1 Por qué el sistema solo lee el número de la tarjeta
-
-Las tarjetas que usa el sistema pueden guardar información en su interior protegida con una contraseña criptográfica, pero este proyecto no lee ni escribe esa información: únicamente lee el número de identificación de fábrica de la tarjeta (su "UID"), que se obtiene en un paso anterior a cualquier verificación de contraseña. Esto es suficiente y razonable para control de asistencia, donde el riesgo es bajo, pero conviene ser honestos sobre su límite: existen tarjetas regrabables capaces de imitar el número de otra tarjeta, así que la seguridad del sistema descansa en que la lista de tarjetas válidas esté bien controlada administrativamente, no en una propiedad criptográfica de la tarjeta misma. Si en algún momento el sistema se usara para proteger algo de mayor valor que el registro de asistencia, valdría la pena migrar a un tipo de tarjeta con autenticación más fuerte.
-
-### 4.2 Qué pasa si no hay lector conectado
-
-Si el programa se ejecuta en una computadora que no tiene el lector conectado (por ejemplo, durante pruebas o desarrollo), el sistema lo detecta automáticamente y simplemente se queda a la espera, sin fallar ni generar errores. Es importante aclarar que este modo no simula lecturas de tarjetas: solo evita que el programa se caiga por falta de hardware.
-
----
-
-## 5. Cómo está organizado el software
-
-El sistema está compuesto por tres programas principales, cada uno enfocado en una sola tarea, y dos programas de apoyo que corren en segundo plano. Separarlos así tiene una ventaja práctica: si uno falla, los demás pueden seguir funcionando (este punto se retoma en la sección 13).
-
-| Programa | Qué hace | Quién puede usarlo |
-|---|---|---|
-| Lector de tarjetas | Vigila el lector físico, decide si un escaneo cuenta como asistencia y lo guarda en la base de datos. | Nadie directamente; corre solo, en segundo plano. |
-| Panel administrativo | Página web para dar de alta y baja estudiantes y tarjetas, generar reportes, hacer respaldos y administrar el equipo. | Personal autorizado, con usuario y contraseña. |
-| Panel de visualización (dashboard) | Pantalla de solo lectura con las cifras del día en tiempo real. | Cualquiera con acceso a la pantalla física o a la red local. |
-| Vigilante de red | Revisa la conexión Wi-Fi y la restablece sola si se cae. | Nadie directamente; corre solo, en segundo plano. |
-| Modo kiosco (previsto a futuro) | Abriría el panel de visualización a pantalla completa en un monitor dedicado. | No implementado aún; el acceso actual es vía navegador en la red local. |
-
-*Tabla 3. Los cinco programas que componen el sistema y su función.*
-
-### 5.1 Cómo se mantienen siempre encendidos
-
-Cada uno de estos programas está registrado ante el propio sistema operativo (mediante un mecanismo llamado *systemd*) para que arranque automáticamente cuando se enciende la Raspberry Pi y, si llegara a cerrarse por cualquier motivo, se reinicie solo a los pocos segundos. El programa del lector corre con permisos de administrador porque necesita acceso directo al hardware; el panel administrativo y el panel de visualización, en cambio, corren con una cuenta de usuario normal, con permisos limitados, ya que no necesitan tocar el hardware directamente —solo la base de datos—.
-
-El panel administrativo y el panel de visualización usan un servidor llamado Gunicorn, configurado con dos procesos y dos "hilos" de atención cada uno; esto le permite responder varias peticiones al mismo tiempo sin bloquear unas con otras. El panel administrativo tiene además un margen de espera más largo (dos minutos) para operaciones que pueden tardar, como generar un reporte grande o respaldar la base de datos, mientras que el panel de visualización, que solo hace consultas rápidas, usa el margen estándar.
-
----
-
-## 6. La base de datos: qué información se guarda y cómo
-
-Toda la información del sistema vive en un solo archivo, usando un motor de base de datos llamado SQLite, configurado en un modo (llamado WAL) que permite que varios programas lean la información al mismo tiempo sin bloquearse entre sí, mientras el lector sigue escribiendo nuevos registros de forma constante.
-
-### 6.1 Qué información guarda cada tabla
-
-```mermaid
-erDiagram
-    ESTUDIANTES ||--o{ TARJETAS : "puede tener varias, a lo largo del tiempo"
-    ESTUDIANTES ||--o{ REGISTROS_ASISTENCIA : "genera"
-    ESTUDIANTES {
-        string nombre
-        string matricula "único"
-        string carrera
-        int semestre
-        string estado "activo / inactivo"
-    }
-    TARJETAS {
-        string uid "número de la tarjeta, único"
-        bool activa
-    }
-    REGISTROS_ASISTENCIA {
-        string uid
-        datetime timestamp
-        string tipo_evento "aceptado / rebote / ya_escaneado"
-    }
-    AUDIT_LOG {
-        datetime timestamp
-        string ip
-        string accion
-        string resultado "éxito / error"
-    }
-```
-*Diagrama 3. Relación entre la información que guarda el sistema. La bitácora de auditoría (`AUDIT_LOG`) es independiente: no está ligada a estudiantes ni tarjetas.*
-
-| Tabla | Qué guarda | Dato más importante |
-|---|---|---|
-| Estudiantes | Nombre, matrícula, carrera, semestre, grupo, correo, foto y si está activo o inactivo. | La matrícula debe ser única para cada estudiante. |
-| Tarjetas | El número de cada tarjeta física y a qué estudiante pertenece (si ya fue asignada). | Un mismo estudiante puede tener varias tarjetas a lo largo del tiempo (por ejemplo, si repone una extraviada). |
-| Registros de asistencia | Cada evento de lectura: quién, cuándo y si fue aceptado, rechazado o ya se había registrado ese día. | Es la tabla que más crece; nunca se borra automáticamente. |
-| Bitácora de auditoría | Qué acciones administrativas sensibles se realizaron (reinicios, restauraciones, bajas masivas), desde qué dirección de red y si tuvieron éxito. | Sirve para reconstruir qué pasó ante cualquier duda o incidente. |
-
-*Tabla 4. Las cuatro tablas que componen la base de datos del sistema.*
-
-### 6.2 Por qué borrar un estudiante no borra su historial
-
-Cuando se elimina un estudiante de la base de datos, sus tarjetas y su historial de asistencia no desaparecen con él: quedan como registros "huérfanos", identificables por el número de tarjeta, en lugar de borrarse en cascada. Esta decisión fue deliberada, por dos razones. Primero, el historial de asistencia documenta hechos que ya ocurrieron —una tarjeta pasó por el lector en tal fecha y hora— y borrarlo automáticamente eliminaría evidencia que podría necesitarse después, por ejemplo para una auditoría o un trámite administrativo. Segundo, si un estudiante se elimina por error de captura, conservar sus registros permite reconciliar la información manualmente; si se hubieran borrado en cascada, esa información se habría perdido de forma irreversible en el mismo instante. Por este motivo, el sistema prefiere "dar de baja" a un estudiante (marcarlo como inactivo, sin borrarlo) en lugar de eliminarlo físicamente; la eliminación física queda reservada para casos excepcionales, como un registro duplicado por error de captura.
-
-### 6.3 Mantenimiento: respaldos, restauración y crecimiento
-
-El panel administrativo permite generar un respaldo de la base de datos con un solo botón, en cualquier momento; ese respaldo usa el propio mecanismo de SQLite para garantizar que la copia quede completa y consistente, incluso si en ese momento se está escribiendo un nuevo registro. Restaurar un respaldo es una operación delicada —sobrescribe la información en uso— por lo que primero se detienen los programas que usan la base de datos, se guarda una copia de seguridad del estado actual por si acaso, y solo entonces se sustituye el archivo por el respaldo elegido.
-
-Con un uso típico —entre 300 y 500 estudiantes activos y unos 2 a 4 escaneos por estudiante al día, incluyendo reintentos— la base de datos crece aproximadamente entre 150 y 300 kilobytes por día, lo que equivale a entre 13 y 27 megabytes por semestre y entre 30 y 60 megabytes por año. Incluso después de varios años de uso continuo sin depurar nada, el archivo se mantendría en el orden de unos pocos cientos de megabytes, muy por debajo de cualquier límite práctico. El verdadero riesgo a largo plazo no es el espacio en disco, sino que las consultas se vuelvan un poco más lentas conforme la tabla de registros crece a cientos de miles de renglones a lo largo de varios años; por eso se recomienda, al cierre de cada ciclo escolar, mover los registros más antiguos a un archivo histórico separado, conservando la posibilidad de consultarlos después si hiciera falta.
-
----
-
-## 7. El panel administrativo: qué se puede hacer desde ahí
-
-El panel administrativo es una página web que se comunica con el sistema mediante más de cincuenta funciones internas (en informática, a este conjunto de funciones se le llama una API). No es necesario conocer cada una de ellas para entender el sistema; basta con saber qué grandes tareas cubre y cómo está protegido.
-
-### 7.1 Cómo se protege el acceso
-
-Cada vez que alguien intenta usar el panel administrativo, el sistema exige un usuario y una contraseña (un esquema llamado "autenticación básica"); no existe una sesión que se quede abierta ni un botón de "cerrar sesión", cada solicitud debe presentar las credenciales. Estas credenciales no se comparan de la forma más simple posible, sino con una técnica resistente a los llamados "ataques de tiempo": una comparación ingenua puede, en teoría, delatar sin querer cuántos caracteres de la contraseña se acertaron según cuánto tarda en responder el sistema; la técnica usada aquí tarda siempre lo mismo, sin importar si la contraseña es correcta o no, cerrando esa posible fuga de información.
-
-Además de la contraseña, el sistema tiene varias capas adicionales de protección: un límite de intentos fallidos por minuto (para frenar intentos de adivinar la contraseña por fuerza bruta), un mecanismo —ya construido pero actualmente apagado— para aceptar conexiones solo desde direcciones de red conocidas de la institución, encabezados de seguridad que dificultan ciertos ataques comunes en la web, un límite de tamaño máximo por solicitud (5 megabytes) y una protección adicional en las operaciones más delicadas (como reiniciar el equipo o borrar información en bloque), que exige una confirmación explícita antes de ejecutarse.
-
-### 7.2 Qué se puede hacer desde el panel
-
-| Área | Qué permite hacer |
+| Archivo | Propósito |
 |---|---|
-| Estadísticas y análisis | Ver cifras del día y de los últimos siete días, así como comparativas por semestre y por hora. |
-| Estudiantes | Dar de alta, editar, dar de baja o eliminar estudiantes, de forma individual o en bloque (por ejemplo, promover a todo un grupo de semestre, o dar de baja a una generación completa). |
-| Tarjetas | Asignar, activar, desactivar o eliminar tarjetas, y asociarlas a un estudiante. |
-| Alta rápida de tarjetas | Activar un modo de "escucha" para capturar el número de una tarjeta nueva con solo acercarla al lector, en lugar de teclearlo a mano; también admite capturar varias tarjetas seguidas en una sola sesión, útil al inicio de cada semestre. |
-| Reportes y exportación | Descargar en formato CSV (compatible con Excel) el padrón completo de estudiantes o la asistencia de un día específico. |
-| Hardware y red | Consultar temperatura, uso de memoria y espacio en disco del equipo, ver el estado de la conexión Wi-Fi, y reiniciar o apagar la Raspberry Pi de forma remota. |
-| Base de datos | Ver su estado, crear y descargar respaldos, restaurar un respaldo anterior, y depurar registros antiguos según fecha, carrera, semestre o grupo (con una vista previa antes de borrar nada). |
-| Bitácora de auditoría | Consultar el historial de acciones administrativas sensibles realizadas en el sistema. |
-
-*Tabla 5. Principales funciones disponibles desde el panel administrativo.*
-
-Una particularidad digna de mención: cuando algo falla dentro de una operación de depuración de registros ("purga"), el sistema garantiza que nunca se borre información sin haber logrado antes crear un respaldo de seguridad automático; si el respaldo no puede crearse, la operación completa se cancela.
-
-### 7.3 Formato de las respuestas
-
-Casi todas las funciones del panel devuelven la información en un formato estándar y homogéneo, de manera que un error inesperado en cualquiera de ellas se reporta siempre de forma consistente. Existen, sin embargo, cuatro funciones (la página principal del panel y las de exportación y descarga de archivos) que no siguen este mismo formato de error por la naturaleza de lo que entregan —un archivo en lugar de un mensaje corto—, algo a tener en cuenta si en el futuro se integra este panel con otro sistema.
+| `rfid_admin_mode` | Flag: activa el modo captura masiva de UIDs |
+| `rfid_admin_uid` | UID leído en modo admin (con flock exclusivo) |
+| `rfid_reader_status` | Estado actual del reader (`ok` / `error`) |
 
 ---
 
-## 8. El recorrido completo de un dato: de la tarjeta a la pantalla
+## 3. Estructura del repositorio
 
-Para entender qué tan rápido responde el sistema, conviene seguir paso a paso lo que ocurre desde que alguien acerca su tarjeta hasta que ese evento aparece reflejado en la pantalla de visualización.
-
-```mermaid
-sequenceDiagram
-    participant T as Tarjeta
-    participant L as Lector (rfid-reader)
-    participant DB as Base de datos
-    participant P as Panel de visualización
-    participant N as Navegador (pantalla)
-
-    T->>L: Se acerca al lector
-    L->>DB: ¿Existe este número de tarjeta?
-    DB-->>L: Sí, pertenece a Juan Pérez
-    L->>DB: ¿Ya se registró hoy?
-    DB-->>L: No, es la primera vez
-    L->>DB: Guarda el registro ("aceptado")
-    Note over L,DB: ~160 ms en total, dominado por el<br/>intervalo de revisión del lector
-    N->>P: ¿Hay un evento nuevo? (cada 800 ms)
-    P->>DB: Consulta el último registro
-    DB-->>P: Entrega los datos
-    P-->>N: Envía nombre, foto y resultado
-    N->>N: Muestra el aviso en pantalla
 ```
-*Diagrama 4. Secuencia completa desde que se acerca la tarjeta hasta que aparece en pantalla.*
-
-| Etapa | Tiempo típico | Peor caso |
-|---|---|---|
-| Detección de la tarjeta por el lector | 0–75 ms | 150 ms |
-| Consulta a la base de datos y guardado del registro | 3–11 ms | 30–65 ms |
-| La pantalla detecta el evento nuevo | 0–800 ms | 800 ms |
-| **Total, desde que se acerca la tarjeta hasta que aparece en pantalla** | **~250–350 ms** | **hasta ~1.1 s** |
-
-*Tabla 6. Tiempos aproximados de respuesta del sistema, de la tarjeta a la pantalla.*
-
-Vale la pena señalar con honestidad los puntos donde el sistema podría ser más eficiente. El más notable es que, para saber si el programa lector sigue activo, el panel de visualización le pregunta directamente al sistema operativo cada cinco segundos, y esa consulta en particular es bastante más lenta (entre 50 y 300 milisegundos) que cualquiera de las consultas a la base de datos; espaciarla un poco más —revisarla cada 30 o 60 segundos en lugar de en cada actualización— aliviaría esa carga sin perder utilidad real. Otro punto de mejora es que hoy no existe una forma de que la base de datos "avise" al panel de visualización en el instante en que ocurre un evento nuevo: todo funciona por consultas repetidas a intervalos fijos, lo cual es sencillo y confiable, pero impone ese límite de hasta 800 milisegundos antes de que un evento se refleje en pantalla.
-
----
-
-## 9. El panel de visualización en tiempo real
-
-Esta pantalla, pensada para mostrarse en un monitor dedicado o consultarse desde cualquier equipo de la red local, resume lo que ha ocurrido durante el día: cuántos accesos fueron aceptados, cuántos fueron rechazados, cuántas tarjetas están activas en el sistema, un listado de los eventos más recientes con el nombre de cada persona, y una gráfica de barras que muestra en qué horas del día hay más movimiento.
-
-La actualización de esta pantalla ocurre en dos velocidades distintas, cada una ajustada a lo que realmente necesita. Cada 800 milisegundos, el sistema revisa si hubo un evento nuevo (una consulta muy ligera), y si lo hay, muestra de inmediato un aviso a pantalla completa con el nombre de la persona. Cada cinco segundos, se actualizan las cifras generales —los contadores, la gráfica por hora y el indicador de si el lector sigue activo—, ya que estos datos no cambian de un instante a otro y no tiene sentido recalcularlos con tanta frecuencia como el aviso de "tarjeta aceptada".
-
-El diseño visual del panel está centralizado: todos los colores del panel están definidos en un solo lugar del código, así que cambiar, por ejemplo, el tono de azul institucional actualiza automáticamente el resto de los elementos que lo usan, sin tener que modificar cada uno por separado. De la misma forma, ya existe internamente una cifra —cuántas personas han vuelto a pasar su tarjeta después de su primer registro del día— que el sistema calcula pero que actualmente no se muestra en ningún lugar de la pantalla; añadirla es un buen ejemplo de mejora sencilla, ya que el dato ya viaja hasta el navegador, solo falta mostrarlo.
-
----
-
-## 10. Exportación de reportes y actualización del sistema
-
-El sistema no cuenta con un proceso automático que transforme datos entre distintos sistemas (lo que en informática se conoce como un proceso ETL); toda la información se guarda y se consulta directamente en la misma base de datos. Las dos únicas formas de "salida" de información hacia afuera del sistema son la exportación a reportes en formato CSV y las actualizaciones incrementales de la estructura de la base de datos, descritas a continuación.
-
-### 10.1 Reportes en CSV
-
-El panel administrativo permite descargar tanto el padrón completo de estudiantes como la asistencia de un día concreto, en un formato de texto separado por comas (CSV) que Excel puede abrir directamente. El sistema entrega estos archivos poco a poco, en pequeños bloques, en lugar de construir el archivo completo en memoria antes de enviarlo; esto evita que una exportación grande consuma de golpe toda la memoria disponible en la Raspberry Pi. Se incluyen además dos cuidados poco visibles pero importantes: el archivo indica explícitamente que su codificación es UTF-8 para que Excel muestre correctamente los acentos y la letra "ñ" sin configuración adicional, y cualquier campo de texto que comience con un carácter que Excel podría interpretar como el inicio de una fórmula (por ejemplo, un signo igual) se neutraliza automáticamente anteponiéndole una comilla, evitando así que un nombre mal intencionado se ejecute como una fórmula al abrir el archivo.
-
-### 10.2 Cómo evoluciona la estructura de la base de datos
-
-Cuando ha sido necesario agregar información nueva a la base de datos —por ejemplo, cuando se añadió la bitácora de auditoría—, esto se hizo mediante actualizaciones incrementales que se pueden ejecutar de forma segura las veces que hagan falta, sin borrar la información ya existente ni afectar a una instalación que ya tenía esos cambios aplicados. Este mecanismo está protegido detrás de un interruptor que permanece apagado en el uso normal del sistema, y que solo se activa temporalmente, de forma manual, en el momento en que se necesita aplicar una actualización, respaldando siempre la base de datos antes de hacerlo.
-
----
-
-## 11. Registros y bitácoras del sistema
-
-Además de la información de asistencia, el sistema guarda distintos tipos de registros técnicos que sirven para dar seguimiento y diagnosticar problemas.
-
-| Fuente | Qué contiene | Cuánto tiempo se conserva |
-|---|---|---|
-| Registro del lector | Cada lectura de tarjeta, aceptada o no, con fecha y hora. | Aproximadamente un mes (últimas cuatro semanas). |
-| Registro del vigilante de red | Intentos de reconexión Wi-Fi. | Aproximadamente un mes. |
-| Bitácora de auditoría | Acciones administrativas sensibles: quién, qué, desde dónde y si tuvo éxito. | Indefinido; no se depura automáticamente todavía. |
-| Registros del propio sistema operativo | Actividad general de cada uno de los cinco programas del sistema. | Gestionado por el sistema operativo, generalmente limitado por espacio en disco. |
-
-*Tabla 7. Fuentes de registro del sistema y su política de conservación.*
-
-La bitácora de auditoría merece una mención aparte, porque es la que documenta acciones con posible impacto real: reinicios o apagados del equipo, creación o restauración de respaldos, eliminación de un respaldo, depuraciones de registros antiguos, y promociones o bajas masivas de estudiantes. Cada una de estas acciones queda registrada con la fecha, la dirección de red desde donde se hizo, el detalle de la operación y si tuvo éxito o no —incluso los intentos de acceso bloqueados por exceso de intentos fallidos quedan anotados—. Para ser transparentes sobre sus límites: hoy no quedan registradas ahí las altas, ediciones o bajas individuales de un solo estudiante o tarjeta, ni el encendido y apagado de los programas de forma individual (solo el reinicio o apagado de todo el equipo); esta es una diferencia intencional entre "lo que se audita" (acciones de alto impacto) y "lo que ocurre en el día a día" (operaciones rutinarias).
-
----
-
-## 12. Seguridad del sistema
-
-Se realizó una revisión de seguridad enfocada en dos riesgos principales: que alguien pudiera ejecutar comandos no autorizados en el equipo (aprovechando que el panel puede reiniciar servicios del sistema de forma remota), y que alguien sin autorización pudiera acceder a la información o a las funciones administrativas del sistema.
-
-### 12.1 Qué se encontró
-
-| Hallazgo | Situación |
-|---|---|
-| Posible ejecución de comandos no autorizados | Descartado: el sistema solo acepta nombres de servicio de una lista predefinida y cerrada, y sanea cualquier valor antes de usarlo. |
-| Endpoints sin autenticación | Descartado: la exigencia de usuario y contraseña cubre absolutamente todas las funciones del panel, sin excepción. |
-| Las credenciales viajan sin cifrar por la red | Pendiente. Es el hallazgo de mayor prioridad: se recomienda cifrar la conexión (HTTPS) antes de operar el sistema sin supervisión directa. |
-| Contraseña de administrador poco robusta | Pendiente. Se recomienda sustituirla por una generada de forma aleatoria y no reutilizada en ningún otro sistema. |
-| Restricción por red institucional, construida pero apagada | Pendiente activar. El mecanismo ya existe en el código; solo falta configurarlo y encenderlo. |
-| Falta una confirmación explícita al reiniciar la conexión de red | Pendiente, de baja prioridad. Otras operaciones similares sí piden confirmación; esta debería seguir el mismo criterio. |
-| Contraseña débil en el mecanismo de respaldo por SSH | Solo aplica si llegara a usarse ese modo alterno de conexión remota; no está en uso en la operación normal. |
-
-*Tabla 8. Hallazgos de la revisión de seguridad y su estado actual.*
-
-### 12.2 Buenas prácticas que ya están implementadas
-
-- Comparación de contraseñas resistente a ataques que intentan medir el tiempo de respuesta.
-- Límite de intentos fallidos de acceso, para frenar intentos de adivinar la contraseña.
-- Registro automático en la bitácora de auditoría cuando una dirección de red queda bloqueada por exceso de intentos.
-- Encabezados de seguridad en las respuestas del panel, que dificultan ataques comunes en páginas web.
-- Todas las consultas a la base de datos usan parámetros seguros, nunca texto del usuario pegado directamente en la consulta —lo que previene el ataque conocido como inyección SQL.
-- Validación estricta del nombre de archivo al restaurar un respaldo, que impide intentar acceder a archivos fuera de la carpeta permitida.
-- Mecanismo de restricción por red institucional ya construido, listo para activarse.
-
-### 12.3 Recomendaciones, en orden de prioridad
-
-| Prioridad | Recomendación | Qué logra |
-|---|---|---|
-| Alta | Colocar un intermediario con cifrado (HTTPS) delante del panel administrativo. | Evita que las credenciales viajen legibles por la red. |
-| Media | Cambiar la contraseña de administrador por una generada aleatoriamente. | Reduce el riesgo de que alguien la adivine o la reutilice de otro sistema. |
-| Media | Activar la restricción de acceso por red institucional. | Limita quién puede siquiera intentar entrar al panel, según su ubicación en la red. |
-| Baja | Exigir una confirmación explícita antes de reiniciar la conexión de red. | Evita reinicios accidentales de la conectividad. |
-
-*Tabla 9. Recomendaciones de seguridad, priorizadas.*
-
----
-
-## 13. ¿Qué pasa si algo falla?
-
-Ninguna de las piezas del sistema es completamente independiente de las demás; sin embargo, están organizadas de tal forma que una falla parcial no necesariamente detiene todo el sistema.
-
-```mermaid
-flowchart TD
-    DB[("rfid.db<br/>ÚNICO PUNTO DE FALLA")] --> R["rfid-reader"]
-    DB --> C["rfid-crud"]
-    DB --> D["rfid-dashboard"]
-    D --> K["kiosk (futuro)"]
-    W["network-watchdog"] -.-> R
-
-    classDef critico fill:#C0392B,stroke:#78281f,color:#fff
-    classDef noCritico fill:#E8A020,stroke:#9c6b0a,color:#fff
-    classDef cosmetico fill:#95A5A6,stroke:#616a6b,color:#fff
-
-    class DB,R critico
-    class C,D noCritico
-    class K,W cosmetico
+rfid-system/
+├── crud/
+│   ├── app_crud.py              # Servicio Flask — panel administrativo (puerto 5001)
+│   ├── rfid_software_admin.py   # Classes ServiceManager y DatabaseManager (CLI/internal)
+│   ├── static/fotos/            # Fotos de estudiantes (JPEG, max 2 000 px)
+│   └── templates/crud_dashboard.html
+├── dashboard/
+│   ├── app_dashboard.py         # Servicio Flask — dashboard (puerto 5000)
+│   └── templates/dashboard.html
+├── shared/
+│   ├── rfid_reader.py           # Proceso principal de lectura RFID
+│   ├── init_db.py               # Crea el esquema de la base de datos
+│   ├── run_incremental_vacuum.py# Vacuum incremental programado
+│   ├── rfid.db                  # Base de datos SQLite (generada por init_db.py)
+│   ├── backups/                 # Respaldos creados desde el panel admin
+│   └── tests/
+│       ├── conftest.py
+│       ├── pytest.ini
+│       ├── run_tests.sh
+│       ├── test_crud_api.py
+│       ├── test_dashboard_y_db.py
+│       ├── test_reader.py
+│       ├── test_reader_extended.py
+│       ├── test_smoke.py
+│       └── test_software_admin.py
+├── scripts/
+│   └── health_check.sh          # Verifica disponibilidad del endpoint /api/health/db
+├── logs/
+│   ├── access.log
+│   ├── error.log
+│   └── health_check.log
+├── rfid-incremental-vacuum.service
+├── rfid-incremental-vacuum.timer
+├── requirements.txt
+├── requirements-ci.txt
+└── README.md
 ```
-*Diagrama 5. Qué tan grave es la falla de cada componente — rojo: crítico, naranja: no crítico para la operación diaria, gris: afecta solo lo cosmético o el acceso remoto.*
 
-| Si esto falla… | …esto es lo que pasa | Qué tan grave es |
+---
+
+## 4. Requisitos de hardware
+
+### 4.1 Componentes
+
+| Componente | Especificación mínima |
+|---|---|
+| Raspberry Pi | 4 Model B (2 GB RAM o más) |
+| Lector RFID | RC522 (SPI, 3.3 V) |
+| Tarjetas | MIFARE Classic 1K / 4K o MIFARE Ultralight |
+| MicroSD | 16 GB clase 10 (A1 o superior recomendado) |
+| Fuente | Oficial 5 V / 3 A USB-C |
+
+### 4.2 Conexión RC522 → Raspberry Pi 4
+
+| RC522 | Función | Pin físico RPi4 | GPIO BCM |
+|---|---|---|---|
+| 3.3V | Alimentación | 1 | — |
+| RST | Reset | 22 | GPIO25 |
+| GND | Tierra | 6 | — |
+| IRQ | No conectar | — | — |
+| MISO | SPI MISO | 21 | GPIO9 |
+| MOSI | SPI MOSI | 19 | GPIO10 |
+| SCK | SPI CLK | 23 | GPIO11 |
+| SDA/SS | SPI CE0 | 24 | GPIO8 |
+
+> ⚠️ **El RC522 opera a 3.3 V. Conectarlo a 5 V daña el módulo y puede dañar la Pi.**
+
+### 4.3 Habilitar SPI en Raspberry Pi OS
+
+```bash
+sudo raspi-config
+# Interfacing Options → SPI → Enable
+sudo reboot
+# Verificar:
+ls /dev/spidev*   # debe aparecer spidev0.0
+```
+
+---
+
+## 5. Instalación y puesta en marcha
+
+### 5.1 Clonar el repositorio
+
+```bash
+cd /home/admin
+git clone <URL-del-repositorio> rfid-system
+cd rfid-system
+```
+
+### 5.2 Crear entorno virtual e instalar dependencias
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 5.3 Crear el archivo de variables de entorno
+
+```bash
+cp .env.example .env   # o crear desde cero
+nano .env
+```
+
+Contenido mínimo requerido (ver sección 6 para la referencia completa):
+
+```ini
+ADMIN_USER=admin
+ADMIN_PASSWORD=cambia_esto_por_una_contraseña_fuerte
+```
+
+### 5.4 Inicializar la base de datos
+
+```bash
+python shared/init_db.py
+# Salida esperada:
+# ✅ Base de datos lista en: /home/admin/rfid-system/shared/rfid.db
+# WAL mode activado — lecturas concurrentes sin bloqueo.
+```
+
+### 5.5 Crear directorio de archivos de señal
+
+```bash
+sudo mkdir -p /run/rfid-shared
+sudo chown admin:admin /run/rfid-shared
+sudo chmod 750 /run/rfid-shared
+```
+
+### 5.6 Instalar y habilitar los servicios systemd
+
+```bash
+# Copiar unidades al directorio de systemd
+sudo cp /home/admin/rfid-system/rfid-incremental-vacuum.service /etc/systemd/system/
+sudo cp /home/admin/rfid-system/rfid-incremental-vacuum.timer   /etc/systemd/system/
+# (Los archivos .service de reader, crud y dashboard se crean según la plantilla de la Wiki)
+
+sudo systemctl daemon-reload
+sudo systemctl enable rfid-reader rfid-crud rfid-dashboard rfid-incremental-vacuum.timer
+sudo systemctl start  rfid-reader rfid-crud rfid-dashboard rfid-incremental-vacuum.timer
+```
+
+### 5.7 Verificar que todo esté activo
+
+```bash
+sudo systemctl status rfid-reader rfid-crud rfid-dashboard
+# Acceder al panel admin:
+# http://<IP-de-la-Pi>:5001
+# Acceder al dashboard (desde la Pi o red local):
+# http://<IP-de-la-Pi>:5000
+```
+
+---
+
+## 6. Configuración
+
+Todas las variables se leen desde el archivo `.env` en la raíz del proyecto.  
+Las marcadas con ★ son **obligatorias**; el servicio no arranca sin ellas.
+
+| Variable | Obligatoria | Valor por defecto | Descripción |
+|---|---|---|---|
+| `ADMIN_USER` | ★ | — | Usuario del panel administrativo |
+| `ADMIN_PASSWORD` | ★ | — | Contraseña del panel administrativo |
+| `ALLOWED_SUBNET` | — | `disabled` | CIDR(s) permitidos, ej. `192.168.1.0/24`. `disabled` = sin restricción de IP |
+| `ALLOW_HTTP_MIGRATIONS` | — | `false` | Activa el endpoint `/api/migrate` (solo para migraciones manuales) |
+| `RFID_SSH_HOST` | — | `127.0.0.1` | Host para modo SSH remoto en `rfid_software_admin.py` |
+| `RFID_SSH_USER` | — | `admin` | Usuario SSH |
+| `RFID_SSH_PASSWORD` | — | — | Contraseña SSH (obligatoria si `RFID_USE_SSH` ≠ auto/never) |
+| `RFID_SSH_PORT` | — | `22` | Puerto SSH |
+| `RFID_USE_SSH` | — | `auto` | `auto`, `always`, `never` |
+
+---
+
+## 7. Servicios systemd
+
+### 7.1 rfid-reader
+
+```ini
+[Unit]
+Description=RFID Reader Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/admin/rfid-system/shared
+EnvironmentFile=/home/admin/rfid-system/.env
+ExecStart=/home/admin/rfid-system/venv/bin/python /home/admin/rfid-system/shared/rfid_reader.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 7.2 rfid-crud
+
+```ini
+[Unit]
+Description=RFID CRUD Service (Puerto 5001)
+After=network.target rfid-reader.service
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/rfid-system/crud
+EnvironmentFile=/home/admin/rfid-system/.env
+ExecStart=/home/admin/rfid-system/venv/bin/gunicorn \
+    --workers 2 --threads 2 \
+    --timeout 120 \
+    --bind 0.0.0.0:5001 \
+    app_crud:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 7.3 rfid-dashboard
+
+```ini
+[Unit]
+Description=RFID Dashboard Service (Puerto 5000)
+After=network.target rfid-reader.service
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/rfid-system/dashboard
+EnvironmentFile=/home/admin/rfid-system/.env
+ExecStart=/home/admin/rfid-system/venv/bin/gunicorn \
+    --workers 2 --threads 2 \
+    --timeout 30 \
+    --bind 127.0.0.1:5000 \
+    app_dashboard:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> **Nota:** El dashboard escucha solo en `127.0.0.1` (loopback) intencionalmente; para exponerlo en la red local, usar un proxy reverso (nginx) con control de acceso.
+
+### 7.4 rfid-incremental-vacuum (timer)
+
+Ejecuta un `PRAGMA incremental_vacuum` diario a las 03:30 h ± 5 min (aleatorio) para recuperar páginas libres sin bloquear la DB.
+
+```bash
+# Estado del timer:
+systemctl status rfid-incremental-vacuum.timer
+systemctl list-timers | grep rfid
+```
+
+### 7.5 network-watchdog
+
+Script bash en `shared/network_watchdog.sh`. Se recomienda crear un servicio systemd similar:
+
+```ini
+[Unit]
+Description=RFID Network Watchdog
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/bin/bash /home/admin/rfid-system/shared/network_watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Parámetros relevantes en el script:
+
+| Variable | Valor | Descripción |
 |---|---|---|
-| La base de datos se daña | Todo el sistema queda ciego: nada puede leerse ni escribirse, en ninguna de sus partes. | Crítico — es el único punto que, si falla, afecta a todo a la vez. |
-| El programa del lector se detiene | Deja de registrarse asistencia nueva, aunque el resto del sistema sigue funcionando con la información ya existente. Se reinicia solo, generalmente en segundos. | Crítico para el registro diario. |
-| El panel administrativo se detiene | Se pierde la posibilidad de administrar el sistema, pero el lector sigue registrando asistencia con normalidad. | No crítico para la operación diaria. |
-| El panel de visualización se detiene | Se pierde la pantalla en tiempo real, pero los datos se siguen guardando sin problema y aparecerán en cuanto el panel se recupere. | No crítico. |
-| El vigilante de red se detiene | El Wi-Fi deja de repararse solo si se cae, pero mientras la conexión actual siga viva, no hay impacto inmediato. | Afecta solo el acceso remoto. |
-
-*Tabla 10. Qué ocurre si cada componente del sistema falla, y qué tan grave es.*
-
-Esto deja claro por qué la base de datos es, con diferencia, el punto más delicado del sistema: hoy no existe una copia "en caliente" que pueda tomar su lugar automáticamente si falla, solo respaldos que se generan bajo demanda. Hay tres caminos posibles para reducir este riesgo, de menor a mayor esfuerzo:
-
-1. **Respaldos automáticos frecuentes** (por ejemplo, cada dos horas en horario escolar) — no requiere ningún cambio al sistema y reduce drásticamente cuánta información se podría perder en el peor de los casos. Es la opción que se recomienda aplicar de inmediato.
-2. **Copia periódica hacia otro equipo de la red** — una segunda red de seguridad fuera de la propia tarjeta de memoria de la Raspberry Pi.
-3. **Migrar a un motor de base de datos con replicación automática** — ofrecería continuidad real ante una falla, pero implicaría reescribir buena parte del sistema y añadir la dependencia de un segundo equipo. Dado el tamaño actual del proyecto, este esfuerzo no se justifica todavía, y solo tendría sentido si el sistema creciera para cubrir varias carreras o varios lectores a la vez.
-
-Ante una falla real, el procedimiento es restaurar el respaldo más reciente confiable, verificando primero que ese respaldo esté íntegro antes de ponerlo en producción. En el escenario extremo de no contar con ningún respaldo utilizable, es posible reconstruir la estructura de la base de datos desde cero, aunque en ese caso el historial completo de asistencia se pierde de forma irrecuperable —es evidencia que solo existía en ese archivo—; el padrón de estudiantes, en cambio, podría reconstruirse a partir de un reporte CSV exportado previamente. Este escenario extremo es, precisamente, la razón por la que vale la pena automatizar los respaldos aunque sea con el método más simple posible.
+| `CHECK_INTERVAL` | 30 s | Segundos entre chequeos de conectividad |
+| `FAIL_THRESHOLD` | 3 | Chequeos fallidos consecutivos antes de reconectar |
+| `PING_TARGETS` | 8.8.8.8, 1.1.1.1 | Destinos de ping para verificar internet |
+| `PING_TIMEOUT` | 3 s | Timeout por intento de ping |
 
 ---
 
-## 14. Conclusiones y recomendaciones
+## 8. Base de datos
 
-El sistema cumple con el objetivo que se planteó desde el inicio: automatizar el registro de asistencia mediante tarjetas RFID de forma confiable, con una arquitectura sencilla, autosuficiente (no depende de internet ni de servicios externos) y con buenas prácticas de seguridad ya presentes desde su construcción, como la autenticación obligatoria en todas las funciones y las consultas seguras a la base de datos. El hecho de que el lector, el panel administrativo y el panel de visualización sean programas independientes entre sí permite que una falla parcial no derribe todo el sistema, salvo por la dependencia que los tres comparten: una única base de datos.
+### 8.1 Esquema
 
-| Prioridad | Recomendación para trabajo futuro |
+```sql
+-- Estudiantes
+CREATE TABLE estudiantes (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre           TEXT NOT NULL,
+    apellido_paterno TEXT NOT NULL,
+    apellido_materno TEXT,
+    matricula        TEXT UNIQUE NOT NULL,
+    carrera          TEXT DEFAULT 'ITIC''s',
+    semestre         INTEGER,
+    grupo            TEXT DEFAULT '',
+    correo           TEXT,
+    estado           TEXT DEFAULT 'activo' CHECK(estado IN ('activo','inactivo')),
+    foto             TEXT,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tarjetas RFID
+CREATE TABLE tarjetas (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid           TEXT UNIQUE NOT NULL,       -- número de fábrica de la tarjeta
+    id_estudiante INTEGER REFERENCES estudiantes(id) ON DELETE SET NULL,
+    activa        INTEGER DEFAULT 1 CHECK(activa IN (0,1)),
+    asignada_en   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Registros de asistencia
+CREATE TABLE registros_asistencia (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_estudiante INTEGER REFERENCES estudiantes(id) ON DELETE SET NULL,
+    uid           TEXT NOT NULL,
+    timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_dia     TEXT NOT NULL,              -- 'YYYY-MM-DD', indexado
+    tipo_evento   TEXT NOT NULL
+                  CHECK(tipo_evento IN ('aceptado','rebote','ya_escaneado','desconocido','entrada')),
+    mensaje       TEXT DEFAULT ''
+);
+
+-- Bitácora de auditoría
+CREATE TABLE audit_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    ip        TEXT,
+    accion    TEXT NOT NULL,
+    detalle   TEXT,
+    resultado TEXT NOT NULL
+);
+```
+
+### 8.2 Índices
+
+```sql
+CREATE INDEX idx_reg_fecha         ON registros_asistencia(fecha_dia);
+CREATE INDEX idx_reg_uid           ON registros_asistencia(uid);
+CREATE INDEX idx_reg_evento        ON registros_asistencia(tipo_evento);
+CREATE INDEX idx_reg_fecha_evento  ON registros_asistencia(fecha_dia, tipo_evento);
+CREATE INDEX idx_reg_est_evento    ON registros_asistencia(id_estudiante, tipo_evento);
+CREATE INDEX idx_tarj_uid          ON tarjetas(uid);
+CREATE INDEX idx_tarj_est_activa   ON tarjetas(id_estudiante, activa);
+CREATE INDEX idx_est_estado        ON estudiantes(estado);
+CREATE INDEX idx_est_semestre      ON estudiantes(semestre);
+CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
+```
+
+### 8.3 Pragmas de conexión
+
+```python
+PRAGMA journal_mode=WAL;      # lectura concurrente sin bloqueo
+PRAGMA foreign_keys=ON;
+PRAGMA synchronous=NORMAL;    # balance durabilidad/rendimiento
+PRAGMA auto_vacuum=INCREMENTAL; # vacuum controlado (ver timer)
+```
+
+### 8.4 Crecimiento estimado
+
+| Alumnos activos | Escaneos/día | Crecimiento/día | Por semestre | Por año |
+|---|---|---|---|---|
+| 300 | 2–4 por alumno | ~150 KB | ~13 MB | ~30 MB |
+| 500 | 2–4 por alumno | ~300 KB | ~27 MB | ~60 MB |
+
+---
+
+## 9. API — referencia rápida
+
+Todas las rutas del panel admin (`:5001`) requieren **HTTP Basic Auth**.  
+Formato de respuesta: `{"success": true|false, ...}` salvo exportaciones y `/`.
+
+### Estadísticas
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/estadisticas` | Contadores del día (aceptados, tarjetas activas, total registros) |
+| GET | `/api/analytics` | Asistencia 7 días, por semestre, por hora, top 10 alumnos |
+| GET | `/api/asistencia/hoy` | IDs de estudiantes presentes hoy |
+
+### Estudiantes
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/estudiantes` | Lista (filtros: `semestre`, `grupo`, `buscar`) |
+| POST | `/api/estudiantes` | Crear estudiante |
+| GET | `/api/estudiantes/<id>` | Obtener uno |
+| PUT | `/api/estudiantes/<id>` | Actualizar |
+| DELETE | `/api/estudiantes/<id>` | Eliminar (foto se borra del disco) |
+| GET | `/api/estudiantes/grupos` | Agrupados por semestre/grupo |
+| GET | `/api/estudiantes/<id>/perfil` | Perfil completo con tarjetas y últimos 90 registros |
+| POST | `/api/estudiantes/promover` | Sube semestre a un grupo o lista de IDs |
+| POST | `/api/estudiantes/baja-masiva` | Marca como inactivos en bloque |
+| POST | `/api/estudiantes/alta-masiva` | Importación masiva (array JSON) |
+
+### Tarjetas
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/tarjetas` | Lista paginada (`limit`, `offset`) |
+| POST | `/api/tarjetas` | Crear/asignar tarjeta |
+| PUT | `/api/tarjetas/<id>` | Actualizar |
+| DELETE | `/api/tarjetas/<id>` | Eliminar |
+| POST | `/api/tarjetas/bulk-toggle` | Activar/desactivar por lista de IDs |
+| GET | `/api/rfid/desconocidos` | UIDs rebotados no registrados (top 50) |
+| GET | `/api/rfid/tarjetas-sin-asignar` | Tarjetas sin estudiante asignado |
+| GET | `/api/rfid/alumnos-sin-tarjeta` | Alumnos activos sin tarjeta |
+| GET | `/api/rfid/historial/<uid>` | Últimos 100 registros de un UID |
+| GET | `/api/rfid/ultimo-scan` | Último evento registrado |
+
+### RFID — captura de UID
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/rfid/listen/start` | Activa modo escucha para capturar 1 UID |
+| GET | `/api/rfid/listen/status` | Estado del modo escucha |
+| POST | `/api/rfid/listen/stop` | Cancela modo escucha |
+| POST | `/api/rfid/admin-scan/start` | Inicia sesión de captura masiva (hasta expirar) |
+| GET | `/api/rfid/admin-scan/status` | UIDs capturados en la sesión |
+| POST | `/api/rfid/admin-scan/stop` | Cierra sesión de captura masiva |
+| POST | `/api/rfid/admin-scan/guardar` | Persiste UIDs capturados en `tarjetas` |
+| POST | `/api/rfid/admin-scan/eliminar` | Elimina UIDs de `tarjetas` (opción `forzar`) |
+
+### Registros y auditoría
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/registros` | Lista paginada (filtros: `fecha`, `estado`, `uid`) |
+| GET | `/api/audit-log` | Bitácora de auditoría (filtros: `accion`, `ip`) |
+
+### Hardware y sistema
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/hardware/status` | CPU temp, RAM, disco, uptime, estado RFID y DB |
+| GET | `/api/hardware/services` | Estado de los 3 servicios RFID |
+| POST | `/api/hardware/services/<svc>/<action>` | start/stop/restart/enable/disable |
+| GET | `/api/hardware/services/<svc>/logs` | Últimas N líneas de journalctl |
+| GET | `/api/hardware/network/status` | IP, gateway, DNS, redes Wi-Fi disponibles |
+| POST | `/api/hardware/network/scan` | Rescan de redes Wi-Fi |
+| POST | `/api/hardware/network/connect` | Conectar a red (SSID + password) |
+| POST | `/api/hardware/network/disconnect` | Desconectar |
+| POST | `/api/hardware/system/reboot` | Reiniciar Pi (requiere `confirm: true`) |
+| POST | `/api/hardware/system/shutdown` | Apagar Pi (requiere `confirm: true`) |
+| POST | `/api/hardware/system/optimize` | Liberar caché del sistema |
+
+### Base de datos — desde el panel
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/software/database/status` | Tamaño, conteos, número de respaldos |
+| GET | `/api/health/db` | Integridad (`PRAGMA integrity_check`) |
+| POST | `/api/software/database/backup` | Crear respaldo ahora |
+| GET | `/api/software/database/backups` | Listar respaldos |
+| POST | `/api/software/database/restore` | Restaurar (requiere `confirm: true`) |
+| DELETE | `/api/software/database/backups/<file>` | Eliminar respaldo |
+| POST | `/api/software/database/purge/preview` | Previsualizar cuántos registros se borrarían |
+| POST | `/api/software/database/purge` | Purgar registros (crea respaldo previo automático) |
+
+### Exportación
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/export/estudiantes` | CSV streaming — padrón completo |
+| GET | `/api/export/registros?fecha=YYYY-MM-DD` | CSV streaming — asistencia de una fecha |
+
+---
+
+## 10. Seguridad
+
+### 10.1 Mecanismos implementados
+
+| Mecanismo | Estado | Detalle |
+|---|---|---|
+| HTTP Basic Auth en todas las rutas | ✅ Activo | Comparación con `hmac.compare_digest` (resistente a timing attacks) |
+| Rate limiting global | ✅ Activo | 60 req/min por IP; exento para usuarios autenticados |
+| Rate limiting de fallos de auth | ✅ Activo | 5 intentos/min · 20 intentos/15 min por IP |
+| Registro de IPs bloqueadas en audit_log | ✅ Activo | — |
+| Restricción por subred (allowlist) | ⚙️ Listo, inactivo | Activar con `ALLOWED_SUBNET=192.168.x.0/24` en `.env` |
+| Content Security Policy | ✅ Activo | Cabecera en todas las respuestas |
+| X-Frame-Options, X-Content-Type-Options | ✅ Activo | — |
+| Prevención de inyección SQL | ✅ Activo | 100% consultas parametrizadas |
+| Validación de nombres de respaldo | ✅ Activo | Regex `rfid_backup_\d{8}_\d{6}\.db` |
+| Neutralización de fórmulas CSV | ✅ Activo | Prefijo `'` en campos iniciados con `= + - @` |
+| Cabecera `X-Requested-With` en destructivos | ✅ Activo | Operaciones de reboot, shutdown, restore, baja masiva |
+| Confirmación explícita en destructivos | ✅ Activo | Campo `confirm: true` requerido |
+| HTTPS | ❌ Pendiente | **Prioridad alta** — credenciales viajan en claro |
+
+### 10.2 Recomendaciones pendientes (priorizadas)
+
+1. **[Alta]** Instalar nginx como proxy reverso con TLS (certificado autofirmado o Let's Encrypt en red interna).
+2. **[Alta]** Cambiar `ADMIN_PASSWORD` por una cadena aleatoria de ≥16 caracteres.
+3. **[Media]** Activar `ALLOWED_SUBNET` con el rango de la red institucional.
+4. **[Baja]** Añadir confirmación explícita a `/api/hardware/network/restart`.
+
+---
+
+## 11. Pruebas
+
+### 11.1 Ejecutar la suite completa
+
+```bash
+cd shared
+bash tests/run_tests.sh
+# o directamente:
+source ../venv/bin/activate
+pytest tests/ -v --tb=short
+```
+
+### 11.2 Archivos de prueba
+
+| Archivo | Qué cubre |
 |---|---|
-| Alta | Cifrar el tráfico del panel administrativo (HTTPS) antes de operar sin supervisión constante. |
-| Alta | Cambiar la contraseña de administrador por una robusta y exclusiva de este sistema. |
-| Media | Activar la restricción de acceso por red institucional, ya construida en el código. |
-| Media | Dar al vigilante de red un nombre más consistente con el resto de los servicios, para facilitar futuras auditorías. |
-| Baja | Ampliar el panel de visualización con análisis histórico (por semana, mes o semestre). |
-| Baja | Evaluar, si el caso de uso lo llegara a requerir, un tipo de tarjeta con autenticación criptográfica más fuerte. |
-| Baja | Automatizar los respaldos de la base de datos con una tarea programada, en lugar de solo bajo demanda. |
+| `test_smoke.py` | Arranque básico de cada módulo |
+| `test_reader.py` | Lógica de acceso del lector (mocks de hardware) |
+| `test_reader_extended.py` | Casos límite: debounce, modo admin, estado de archivos de señal |
+| `test_crud_api.py` | Endpoints REST del panel administrativo |
+| `test_dashboard_y_db.py` | Dashboard y consultas a la DB |
+| `test_software_admin.py` | `ServiceManager` y `DatabaseManager` |
 
-*Tabla 11. Recomendaciones para la continuidad del proyecto.*
+### 11.3 Dependencias de prueba
+
+```bash
+pip install -r requirements-ci.txt
+```
+
+El hardware RC522 se excluye automáticamente en entornos sin SPI; el reader opera en "modo simulación" (proceso en espera).
 
 ---
 
-## 15. Glosario de términos
+## 12. Mantenimiento y operación
 
-| Término | Qué significa |
+### 12.1 Health check
+
+El script `scripts/health_check.sh` llama a `/api/health/db` y registra cualquier fallo en `logs/health_check.log`. Se recomienda añadirlo a un cron:
+
+```bash
+# Cada 5 minutos
+*/5 * * * * /bin/bash /home/admin/rfid-system/scripts/health_check.sh
+```
+
+### 12.2 Respaldos manuales vs automáticos
+
+Desde el panel: **Base de datos → Crear respaldo**.  
+Para automatizar (recomendado), añadir a crontab:
+
+```bash
+# Respaldo cada 2 horas en horario escolar (07–20 h)
+0 7-20/2 * * * curl -s -u $ADMIN_USER:$ADMIN_PASSWORD \
+    -X POST http://127.0.0.1:5001/api/software/database/backup
+```
+
+Los respaldos se nombran `rfid_backup_YYYYMMDD_HHMMSS.db` y se guardan en `shared/backups/`.
+
+### 12.3 Rotación de logs
+
+El lector genera `reader.log` en `shared/`; el watchdog genera `network_watchdog.log`.  
+Se recomienda añadir una regla logrotate:
+
+```
+/home/admin/rfid-system/shared/*.log
+/home/admin/rfid-system/logs/*.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+}
+```
+
+### 12.4 Vacuum incremental
+
+El timer `rfid-incremental-vacuum.timer` ejecuta `run_incremental_vacuum.py` cada día a las 03:30 h ± 5 min. No bloquea la base de datos. Para forzar manualmente:
+
+```bash
+sudo systemctl start rfid-incremental-vacuum.service
+```
+
+### 12.5 Actualizar el esquema de la base de datos
+
+```bash
+# 1. Crear un respaldo antes de migrar
+curl -s -u admin:pass -X POST http://127.0.0.1:5001/api/software/database/backup
+
+# 2. Activar migraciones en .env
+echo "ALLOW_HTTP_MIGRATIONS=true" >> .env
+sudo systemctl restart rfid-crud
+
+# 3. Ejecutar migración
+curl -s -u admin:pass -X POST http://127.0.0.1:5001/api/migrate
+
+# 4. Desactivar migraciones
+sed -i 's/ALLOW_HTTP_MIGRATIONS=true/ALLOW_HTTP_MIGRATIONS=false/' .env
+sudo systemctl restart rfid-crud
+```
+
+---
+
+## 13. Troubleshooting
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| El reader no detecta tarjetas | SPI no habilitado o cableado suelto | `ls /dev/spidev*` — si no aparece, volver a habilitar SPI en `raspi-config` |
+| `rfid-crud` no arranca | Faltan `ADMIN_USER`/`ADMIN_PASSWORD` en `.env` | Verificar `.env` y reiniciar el servicio |
+| Error 401 en todas las rutas | Credenciales incorrectas | Verificar usuario y contraseña |
+| Error 429 en login | Demasiados intentos fallidos | Esperar 1–15 min según el límite alcanzado |
+| Lectura duplicada en el mismo segundo | Debounce de 2 s no suficiente | Ajustar `DEBOUNCE_S` en `rfid_reader.py` |
+| DB crece más de lo esperado | No se depuran registros viejos | Usar `/api/software/database/purge` al cierre de semestre |
+| `audit_log` no existe | Migración no aplicada | Ejecutar `/api/migrate` (ver sección 12.5) |
+| Wi-Fi se cae y no se recupera | `network-watchdog` detenido | `sudo systemctl restart network-watchdog` |
+| Fotos no aparecen en el dashboard | Ruta relativa incorrecta | El dashboard sirve fotos desde `crud/static/fotos/` vía `/fotos/<filename>` |
+
+---
+
+## 14. Glosario
+
+| Término | Significado |
 |---|---|
-| RFID | Identificación por radiofrecuencia: tecnología que permite leer una tarjeta sin necesidad de contacto físico. |
-| UID | El número de identificación único que trae cada tarjeta de fábrica. |
-| SPI | El tipo de conexión por cable que usan el lector y la Raspberry Pi para comunicarse entre sí. |
-| Base de datos | El archivo donde se guarda de forma organizada toda la información del sistema. |
-| WAL | Un modo de funcionamiento de la base de datos que permite que varios programas la lean al mismo tiempo sin bloquearse. |
-| API | El conjunto de funciones internas mediante las cuales el panel administrativo se comunica con el sistema. |
-| Panel administrativo | La página web protegida donde el personal autorizado administra el sistema. |
-| Dashboard (panel de visualización) | La pantalla de solo lectura con las cifras del día en tiempo real. |
-| Debounce (anti-rebote) | Técnica para ignorar lecturas repetidas de una misma tarjeta en un intervalo muy corto de tiempo. |
-| Autenticación básica | El esquema de usuario y contraseña que exige el panel administrativo en cada solicitud. |
-| Punto único de falla (SPOF) | Un componente cuya falla detiene todo el sistema; en este proyecto, es la base de datos. |
-| Bitácora de auditoría | El registro de quién hizo qué acción administrativa sensible, cuándo y con qué resultado. |
-
-*Tabla 12. Glosario de términos técnicos usados en este documento.*
+| **UID** | Número único de fábrica de la tarjeta RFID (4 bytes, leído sin autenticar) |
+| **SPI** | Serial Peripheral Interface — bus de comunicación usado entre la Pi y el RC522 |
+| **WAL** | Write-Ahead Logging — modo SQLite que permite lecturas concurrentes sin bloqueo de escritura |
+| **Debounce** | Ignorar lecturas repetidas de la misma tarjeta dentro de un intervalo (2 s por defecto) |
+| **Tipo de evento** | `aceptado` / `rebote` / `ya_escaneado` / `desconocido` / `entrada` |
+| **Modo admin-scan** | Sesión de captura masiva de UIDs sin registrar asistencia; controlada por archivos de señal en `/run/rfid-shared/` |
+| **CRUD** | Create, Read, Update, Delete — panel de administración completo |
+| **CSP** | Content Security Policy — cabecera HTTP que limita los recursos que el navegador puede cargar |
+| **Rate limiting** | Límite de peticiones por unidad de tiempo para prevenir abuso |
+| **HMAC** | Hash-based Message Authentication Code — usado aquí para comparación segura de credenciales |
 
 ---
-
-## 16. Referencias
-
-Este documento se elaboró revisando directamente el código fuente del sistema; si el código cambia en el futuro (nuevas funciones, cambios en el comportamiento), este documento debería actualizarse para no quedar desincronizado con la realidad del proyecto. Para profundizar en los componentes de terceros que el sistema utiliza, se sugieren las siguientes fuentes oficiales:
-
-- SQLite — documentación oficial del modo WAL: [sqlite.org/wal.html](https://www.sqlite.org/wal.html)
-- Flask — documentación oficial del framework web utilizado: [flask.palletsprojects.com](https://flask.palletsprojects.com/)
-- Gunicorn — documentación oficial del servidor usado para ejecutar el panel administrativo y el panel de visualización: [gunicorn.org](https://gunicorn.org/)
-- Hoja de datos técnica del módulo lector MFRC522, publicada por su fabricante, NXP.
-- systemd — documentación oficial de la gestión de servicios en Linux: [freedesktop.org/software/systemd/man/systemd.service.html](https://www.freedesktop.org/software/systemd/man/systemd.service.html)
-
-### Anexo A — Esquema completo de la base de datos
-
-La estructura completa de las tablas e índices de la base de datos —incluyendo cada columna con su tipo de dato— se encuentra en el archivo de inicialización del proyecto (`init_db.py`), disponible en el repositorio del sistema.
-
-### Anexo B — Créditos
-
-Documento elaborado como parte del Servicio Social en el Instituto Tecnológico Superior del Occidente del Estado de Hidalgo (ITSOEH), por **Adrián Moreno Méndez**, estudiante de Ingeniería en Tecnologías de la Información y Comunicación, bajo la asesoría de **José Martín Oropeza Méndez**.
 
 <div align="center">
 
----
-
-**ITSOEH — Ingeniería en Tecnologías de la Información y Comunicación**
-*Servicio Social · Sistema de Control de Asistencia RFID*
+**ITSOEH · ITIC's · Servicio Social 2026**  
+Adrián Moreno Méndez — Asesor: José Martín Oropeza Méndez
 
 </div>
