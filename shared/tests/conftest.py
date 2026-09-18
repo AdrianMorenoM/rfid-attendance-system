@@ -62,12 +62,21 @@ CREATE TABLE IF NOT EXISTS audit_log (
     resultado TEXT NOT NULL
 );
 
+
+CREATE TABLE IF NOT EXISTS auth_fail_log (
+    id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip  TEXT NOT NULL,
+    ts  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_fail_ip_ts ON auth_fail_log(ip, ts);
 CREATE INDEX IF NOT EXISTS idx_reg_fecha   ON registros_asistencia(fecha_dia);
 CREATE INDEX IF NOT EXISTS idx_reg_uid     ON registros_asistencia(uid);
 CREATE INDEX IF NOT EXISTS idx_tarj_uid    ON tarjetas(uid);
 CREATE INDEX IF NOT EXISTS idx_est_estado  ON estudiantes(estado);
 CREATE INDEX IF NOT EXISTS idx_reg_fecha_evento ON registros_asistencia(fecha_dia, tipo_evento);
 """
+
 
 
 def _build_db(path: str) -> None:
@@ -102,24 +111,31 @@ def tmp_db(tmp_path):
 
 @pytest.fixture(scope="function")
 def crud_app(tmp_db, monkeypatch, tmp_path):
-    monkeypatch.setenv("ADMIN_USER", "admin")
-    monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password")
-    monkeypatch.setenv("ALLOWED_SUBNET", "disabled")
-    monkeypatch.setenv("ALLOW_HTTP_MIGRATIONS", "true")
+    monkeypatch.setenv("ADMIN_USER",             "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD",          "test-admin-password")
+    monkeypatch.setenv("ALLOWED_SUBNET",          "disabled")
+    monkeypatch.setenv("ALLOW_HTTP_MIGRATIONS",   "true")
 
     import importlib, sys
-    # Limpiar AMBAS claves bajo las que puede estar registrado
     sys.modules.pop("app_crud", None)
     sys.modules.pop("crud.app_crud", None)
-    import app_crud as crud_module
-    
-    crud_module.BASIC_AUTH_USER = "admin"
-    crud_module.BASIC_AUTH_PASSWORD = "test-admin-password"
 
-    crud_module.DB = tmp_db
-    crud_module.BACKUP_DIR = str(tmp_path / "backups")
+    import app_crud as crud_module
+    importlib.reload(crud_module)
+
+    crud_module.BASIC_AUTH_USER     = "admin"
+    crud_module.BASIC_AUTH_PASSWORD = "test-admin-password"
+    crud_module.DB                  = tmp_db
+    crud_module.BACKUP_DIR          = str(tmp_path / "backups")
     os.makedirs(crud_module.BACKUP_DIR, exist_ok=True)
     crud_module._schema_cache.clear()
+    crud_module._ensure_auth_fail_table()
+
+    # Limpiar los registros de intentos fallidos de autenticación.
+    try:
+        crud_module._AUTH_FAIL_STORAGE.reset()
+    except Exception:
+        pass
 
     crud_module.app.config["TESTING"] = True
     with crud_module.app.test_client() as client:
@@ -128,15 +144,25 @@ def crud_app(tmp_db, monkeypatch, tmp_path):
 
 @pytest.fixture(scope="function")
 def dash_app(tmp_db, monkeypatch):
-    import importlib
+    import importlib, sys
+    sys.modules.pop("app_dashboard", None)
+    sys.modules.pop("dashboard.app_dashboard", None)
+
     import app_dashboard as dash_module
     importlib.reload(dash_module)
 
     dash_module.DB = tmp_db
     dash_module._schema.clear()
 
+    monkeypatch.setenv("ADMIN_USER",     "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password")
+
+    dash_module.BASIC_AUTH_USER     = "admin"
+    dash_module.BASIC_AUTH_PASSWORD = "test-admin-password"
+
     dash_module.app.config["TESTING"] = True
     with dash_module.app.test_client() as client:
+        client.environ_base["HTTP_AUTHORIZATION"] = "Basic YWRtaW46dGVzdC1hZG1pbi1wYXNzd29yZA=="
         yield client, dash_module
 
 

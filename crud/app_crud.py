@@ -26,7 +26,13 @@ try:
 except ImportError:
     pass
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__)
+# Confía en el header X-Forwarded-For que pone nginx, para que Flask vea
+# la IP real del cliente y no la de nginx (127.0.0.1). x_for=1 porque
+# hay exactamente UN proxy de confianza (nuestro nginx) delante.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 
 logging.basicConfig(level=logging.WARNING)
@@ -118,21 +124,45 @@ def _rate_limit_exceeded(e):  # pragma: no cover
         'error': 'Demasiadas solicitudes. Intenta de nuevo en unos momentos.',
     }), 429
 
-# Límite estricto de intentos fallidos de auth
-_AUTH_FAIL_STORAGE      = MemoryStorage()
-_AUTH_FAIL_RATE_LIMITER = FixedWindowRateLimiter(_AUTH_FAIL_STORAGE)
-_AUTH_FAIL_SHORT_LIMIT  = _parse_rate_limit("5/minute")
-_AUTH_FAIL_LONG_LIMIT   = _parse_rate_limit("20/15minutes")
+# Límite estricto de intentos fallidos de auth — respaldado en SQLite
+# (no en RAM) para que funcione igual con N workers de gunicorn: un
+# contador en memoria es por-proceso y cada worker vería su propia
+# cuenta, permitiendo efectivamente N veces más intentos gratis.
+_AUTH_FAIL_SHORT_WINDOW_SEC = 60
+_AUTH_FAIL_SHORT_MAX        = 5
+_AUTH_FAIL_LONG_WINDOW_SEC  = 15 * 60
+_AUTH_FAIL_LONG_MAX         = 20
 
 def _auth_rate_limited(ip: str) -> bool:
-    return not (
-        _AUTH_FAIL_RATE_LIMITER.test(_AUTH_FAIL_SHORT_LIMIT, f"authfail-short:{ip}")
-        and _AUTH_FAIL_RATE_LIMITER.test(_AUTH_FAIL_LONG_LIMIT, f"authfail-long:{ip}")
-    )
+    conn = get_db()
+    try:
+        short = conn.execute(
+            "SELECT COUNT(*) AS n FROM auth_fail_log WHERE ip = ? AND ts >= datetime('now', ?)",
+            (ip, f"-{_AUTH_FAIL_SHORT_WINDOW_SEC} seconds"),
+        ).fetchone()["n"]
+        if short >= _AUTH_FAIL_SHORT_MAX:
+            return True
+        long_ = conn.execute(
+            "SELECT COUNT(*) AS n FROM auth_fail_log WHERE ip = ? AND ts >= datetime('now', ?)",
+            (ip, f"-{_AUTH_FAIL_LONG_WINDOW_SEC} seconds"),
+        ).fetchone()["n"]
+        return long_ >= _AUTH_FAIL_LONG_MAX
+    finally:
+        conn.close()
 
 def _register_auth_failure(ip: str) -> None:
-    _AUTH_FAIL_RATE_LIMITER.hit(_AUTH_FAIL_SHORT_LIMIT, f"authfail-short:{ip}")
-    _AUTH_FAIL_RATE_LIMITER.hit(_AUTH_FAIL_LONG_LIMIT, f"authfail-long:{ip}")
+    conn = get_db()
+    try:
+        # Limpieza oportunista de filas viejas (ventana máxima real es
+        # 15 min; guardamos 1h de colchón) para que la tabla no crezca
+        # sin límite.
+        conn.execute("DELETE FROM auth_fail_log WHERE ts < datetime('now', '-1 hour')")
+        conn.execute(
+            "INSERT INTO auth_fail_log (ip, ts) VALUES (?, datetime('now'))", (ip,)
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 @app.before_request
 def _enforce_basic_auth():
@@ -229,6 +259,36 @@ def get_db() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
     return conn
+
+# Asegura que exista la tabla de rate-limiting de auth aunque no se haya
+# vuelto a correr init_db.py manualmente (self-healing al arrancar).
+class _AuthFailStorage:
+    def reset(self):
+        c = sqlite3.connect(DB, timeout=30.0)
+        try:
+            c.execute("DELETE FROM auth_fail_log")
+            c.commit()
+        finally:
+            c.close()
+
+_AUTH_FAIL_STORAGE = _AuthFailStorage()
+
+def _ensure_auth_fail_table() -> None:
+    c = sqlite3.connect(DB, timeout=30.0)
+    try:
+        c.execute("""CREATE TABLE IF NOT EXISTS auth_fail_log (
+            id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip  TEXT NOT NULL,
+            ts  DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auth_fail_ip_ts ON auth_fail_log(ip, ts)"
+        )
+        c.commit()
+    finally:
+        c.close()
+
+_ensure_auth_fail_table()
 
 _schema_cache: dict = {}
 
@@ -1895,6 +1955,11 @@ def export_registros():
 
 # ===== Migración =====
 ALLOW_HTTP_MIGRATIONS = os.environ.get('ALLOW_HTTP_MIGRATIONS', '').strip().lower() in ('1', 'true')
+if ALLOW_HTTP_MIGRATIONS:
+    log.warning(
+        "ALLOW_HTTP_MIGRATIONS está ACTIVA — /api/migrate acepta ejecutar "
+        "migraciones. Desactívala (quita o pon en 0 en .env) cuando termines."
+    )
 
 @app.route('/api/migrate', methods=['POST'])
 @api

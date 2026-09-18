@@ -55,6 +55,14 @@ CREATE INDEX IF NOT EXISTS idx_est_semestre ON estudiantes(semestre);
 CREATE INDEX IF NOT EXISTS idx_reg_fecha_evento  ON registros_asistencia(fecha_dia, tipo_evento);
 CREATE INDEX IF NOT EXISTS idx_reg_est_evento    ON registros_asistencia(id_estudiante, tipo_evento);
 CREATE INDEX IF NOT EXISTS idx_tarj_est_activa   ON tarjetas(id_estudiante, activa);
+
+CREATE TABLE IF NOT EXISTS auth_fail_log (
+    id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip  TEXT NOT NULL,
+    ts  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_fail_ip_ts ON auth_fail_log(ip, ts);
 """
 
 def init():

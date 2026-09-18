@@ -16,3 +16,7 @@ crud/static/fotos/*
 **/.pytest_cache/
 htmlcov/
 **/htmlcov/
+
+# Archivos auxiliares SQLite
+*.db-wal
+*.db-shm

@@ -2,20 +2,46 @@
 # -*- coding: utf-8 -*-
 """RFID Dashboard Service - Puerto 5000"""
 
-from flask import Flask, render_template, jsonify, send_from_directory
-import sqlite3, os, traceback
+from flask import Flask, render_template, jsonify, send_from_directory, request, Response
+import sqlite3, os, traceback, hmac
 from datetime import datetime
+from functools import wraps
 
-app      = Flask(__name__)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB       = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-# Carpeta de fotos del módulo CRUD
+# Carga .env (solo desarrollo)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+DB        = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
 FOTOS_DIR = os.path.join(BASE_DIR, "..", "crud", "static", "fotos")
 
+# ===== Auth =====
+def _check_credentials(username, password):
+    user_ok = hmac.compare_digest((username or "").encode(), os.environ.get('ADMIN_USER', '').encode())
+    pass_ok = hmac.compare_digest((password or "").encode(), os.environ.get('ADMIN_PASSWORD', '').encode())
+    return user_ok and pass_ok
+
+def require_basic_auth(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not _check_credentials(auth.username, auth.password):
+            return Response('Autenticación requerida.', 401,
+                            {'WWW-Authenticate': 'Basic realm="RFID Dashboard"'})
+        return f(*args, **kwargs)
+    return wrapper
+
+# ===== Rutas =====
 @app.route('/fotos/<path:filename>')
 def serve_foto(filename):
-    """Sirve fotos desde crud/static/fotos/"""
     return send_from_directory(FOTOS_DIR, filename)
 
 def get_db():
@@ -41,20 +67,19 @@ def norm(v):
     return 'rebote'
 
 def normalizar_foto(foto):
-    """Convierte ruta de foto a /fotos/<filename> o la devuelve tal cual si es URL."""
-    if not foto:
-        return None
-    if foto.startswith('http'):
-        return foto
+    if not foto: return None
+    if foto.startswith('http'): return foto
     filename = foto.replace('\\', '/').rstrip('/').split('/')[-1]
     return f'/fotos/{filename}'
 
 @app.route('/')
 @app.route('/dashboard')
+@require_basic_auth
 def index():
     return render_template('dashboard.html')
 
 @app.route('/api/estado')
+@require_basic_auth
 def api_estado():
     try:
         conn = get_db()
@@ -101,15 +126,15 @@ def api_estado():
             r = dict(r)
             nombre = f"{r.get('nombre') or ''} {r.get('apellido_paterno') or ''}".strip() or 'DESCONOCIDO'
             eventos.append({
-                'id':       r['id'],
-                'uid':      r['uid'],
-                'timestamp':r['timestamp'],
-                'estado':   norm(r['tr']),
-                'mensaje':  r['mensaje'],
-                'nombre':   nombre,
-                'matricula':r.get('matricula') or 'N/A',
-                'carrera':  r.get('carrera')   or 'N/A',
-                'foto':     normalizar_foto(r.get('foto')),
+                'id':        r['id'],
+                'uid':       r['uid'],
+                'timestamp': r['timestamp'],
+                'estado':    norm(r['tr']),
+                'mensaje':   r['mensaje'],
+                'nombre':    nombre,
+                'matricula': r.get('matricula') or 'N/A',
+                'carrera':   r.get('carrera')   or 'N/A',
+                'foto':      normalizar_foto(r.get('foto')),
             })
 
         horas_raw = conn.execute(f"""
@@ -131,16 +156,17 @@ def api_estado():
 
         conn.close()
         return jsonify({
-            'success':True, 'stats':stats,
-            'uid_repetidos':[dict(r) for r in reps],
-            'eventos':eventos,
+            'success': True, 'stats': stats,
+            'uid_repetidos': [dict(r) for r in reps],
+            'eventos': eventos,
             'hourly': hourly,
             'reader_ok': reader_ok,
         })
     except Exception as e:
-        return jsonify({'success':False,'error':str(e),'trace':traceback.format_exc()}), 500
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/api/ultimo-evento')
+@require_basic_auth
 def ultimo_evento():
     try:
         conn = get_db()
@@ -156,22 +182,22 @@ def ultimo_evento():
         """, (hoy,)).fetchone()
         conn.close()
         if not row:
-            return jsonify({'success':True,'evento':None})
+            return jsonify({'success': True, 'evento': None})
         r = dict(row)
         nombre = f"{r.get('nombre') or ''} {r.get('apellido_paterno') or ''}".strip() or 'DESCONOCIDO'
-        return jsonify({'success':True,'evento':{
-            'id':       r['id'],
-            'uid':      r['uid'],
-            'timestamp':r['timestamp'],
-            'estado':   norm(r['tr']),
-            'mensaje':  r['mensaje'],
-            'nombre':   nombre,
-            'matricula':r.get('matricula') or 'N/A',
-            'carrera':  r.get('carrera')   or 'N/A',
-            'foto':     normalizar_foto(r.get('foto')),
+        return jsonify({'success': True, 'evento': {
+            'id':        r['id'],
+            'uid':       r['uid'],
+            'timestamp': r['timestamp'],
+            'estado':    norm(r['tr']),
+            'mensaje':   r['mensaje'],
+            'nombre':    nombre,
+            'matricula': r.get('matricula') or 'N/A',
+            'carrera':   r.get('carrera')   or 'N/A',
+            'foto':      normalizar_foto(r.get('foto')),
         }})
     except Exception as e:
-        return jsonify({'success':False,'error':str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=False)

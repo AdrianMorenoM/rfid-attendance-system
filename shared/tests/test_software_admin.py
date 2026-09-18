@@ -484,3 +484,190 @@ class TestDatabaseManagerPurge:
         conn.close()
         assert after_reg < before_reg
         assert after_tar < before_tar
+
+    def test_purge_preview_registros_con_todos_los_filtros(self, db_manager, tmp_db):
+        """Los filtros de registros deben combinarse correctamente."""
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("UPDATE estudiantes SET grupo = 'A' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        result = db_manager.purge_preview({
+            'target': 'registros',
+            'carrera': "ITIC's",
+            'semestre': 1,
+            'grupo': 'a',
+            'estudiante_id': 1,
+            'matricula': ' M001 ',
+        })
+
+        assert result['success'] is True
+        assert result['count'] == 1
+
+        filtros = result['meta']['filters']
+        assert filtros['carrera'] == "ITIC's"
+        assert filtros['semestre'] == 1
+        assert filtros['grupo'] == 'a'
+        assert filtros['estudiante_id'] == 1
+        assert filtros['matricula'] == ' M001 '
+
+
+    def test_purge_preview_estudiantes_con_todos_los_filtros(self, db_manager, tmp_db):
+        """Los filtros explícitos de estudiantes deben combinarse correctamente."""
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("UPDATE estudiantes SET grupo = 'A' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        result = db_manager.purge_preview({
+            'target': 'estudiantes',
+            'carrera': "ITIC's",
+            'semestre': 1,
+            'grupo': 'a',
+            'estudiante_id': 1,
+            'matricula': ' M001 ',
+        })
+
+        assert result['success'] is True
+        assert result['count'] == 1
+        assert result['meta']['cascade'] is True
+
+
+    def test_purge_preview_tarjetas_con_todos_los_filtros(self, db_manager, tmp_db):
+        """Los filtros de tarjetas deben combinarse correctamente."""
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("UPDATE estudiantes SET grupo = 'A' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        result = db_manager.purge_preview({
+            'target': 'tarjetas',
+            'carrera': "ITIC's",
+            'semestre': 1,
+            'grupo': 'a',
+            'estudiante_id': 1,
+            'matricula': ' M001 ',
+        })
+
+        assert result['success'] is True
+        assert result['count'] == 1
+
+
+    def test_purge_target_invalido_propaga_error(self, db_manager):
+        """purge() debe propagar el error de un target inválido."""
+        result = db_manager.purge({
+            'confirm': True,
+            'target': 'noexiste',
+        })
+
+        assert result['success'] is False
+        assert 'target' in result['error'].lower()
+
+
+# ===========================================================================
+# Cobertura adicional: shell / SSH / backups
+# ===========================================================================
+
+class TestShellAndSSH:
+    def test_should_use_ssh_configuracion_forzada(self):
+        with patch.object(adm, 'USE_SSH', 'true'):
+            assert adm._should_use_ssh() is True
+
+        with patch.object(adm, 'USE_SSH', 'false'):
+            assert adm._should_use_ssh() is False
+
+    def test_should_use_ssh_auto_local(self):
+        with patch.object(adm, 'USE_SSH', 'auto'), \
+             patch.object(adm, 'SSH_HOST', '127.0.0.1'):
+            assert adm._should_use_ssh() is False
+
+    def test_should_use_ssh_auto_remoto(self):
+        with patch.object(adm, 'USE_SSH', 'auto'), \
+             patch.object(adm, 'SSH_HOST', '192.168.1.100'):
+            assert adm._should_use_ssh() is True
+
+    def test_run_ssh_sin_paramiko(self):
+        with patch.dict(sys.modules, {'paramiko': None}):
+            result = adm._run_ssh('echo prueba')
+
+        assert result['success'] is False
+        assert result['mode'] == 'ssh'
+        assert 'paramiko' in result['error'].lower()
+
+    def test_run_ssh_exitoso_con_mock(self):
+        client = MagicMock()
+        stdout = MagicMock()
+        stderr = MagicMock()
+        stdout.read.return_value = b' salida \n'
+        stderr.read.return_value = b''
+        stdout.channel.recv_exit_status.return_value = 0
+
+        client.exec_command.return_value = (None, stdout, stderr)
+
+        paramiko_mock = MagicMock()
+        paramiko_mock.SSHClient.return_value = client
+        paramiko_mock.RejectPolicy.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {'paramiko': paramiko_mock}), \
+             patch.object(adm.os.path, 'exists', return_value=True):
+            result = adm._run_ssh('echo prueba')
+
+        assert result == {
+            'success': True,
+            'returncode': 0,
+            'stdout': 'salida',
+            'stderr': '',
+            'mode': 'ssh',
+        }
+
+        client.load_host_keys.assert_called_once_with(adm.SSH_KNOWN_HOSTS)
+        client.set_missing_host_key_policy.assert_called_once()
+        client.connect.assert_called_once()
+        client.exec_command.assert_called_once_with('echo prueba', timeout=30)
+        client.close.assert_called_once()
+
+    def test_run_ssh_error_controlado(self):
+        client = MagicMock()
+        client.connect.side_effect = RuntimeError('fallo de conexión')
+
+        paramiko_mock = MagicMock()
+        paramiko_mock.SSHClient.return_value = client
+        paramiko_mock.RejectPolicy.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {'paramiko': paramiko_mock}):
+            result = adm._run_ssh('echo prueba')
+
+        assert result['success'] is False
+        assert result['mode'] == 'ssh'
+        assert 'fallo de conexión' in result['error']
+
+
+class TestBackupCoverage:
+    def test_list_backups_directorio_inexistente(self, tmp_db, tmp_path):
+        manager = adm.DatabaseManager(
+            tmp_db,
+            str(tmp_path / 'directorio_que_no_existe')
+        )
+
+        assert manager.list_backups() == []
+
+    def test_list_backups_ignora_archivos_invalidos_y_no_archivos(
+        self, db_manager, backup_dir
+    ):
+        Path = __import__('pathlib').Path
+
+        Path(backup_dir, 'archivo.txt').write_text('no es backup')
+        Path(backup_dir, 'rfid_backup_20260101_120000.db').mkdir()
+
+        assert db_manager.list_backups() == []
+
+    def test_create_backup_db_inexistente(self, backup_dir, tmp_path):
+        manager = adm.DatabaseManager(
+            str(tmp_path / 'no_existe.db'),
+            backup_dir
+        )
+
+        result = manager.create_backup()
+
+        assert result['success'] is False
+        assert 'no encontrada' in result['error']

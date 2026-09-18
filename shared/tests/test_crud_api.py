@@ -1232,6 +1232,18 @@ class TestHardwareEndpoints:
                         headers=self._headers())
         assert r.status_code == 200
 
+        audit = client.get('/api/audit-log', headers=self._headers())
+        assert audit.status_code == 200
+        audit_data = audit.get_json()
+        assert audit_data['success'] is True
+
+        reboots = [
+            row for row in audit_data.get('registros', [])
+            if row.get('accion') == 'hardware_system_reboot'
+        ]
+        assert reboots
+        assert reboots[-1]['resultado'] == 'éxito'
+
     def test_hardware_system_shutdown_sin_confirm(self, crud_app):
         client, _ = crud_app
         r = client.post('/api/hardware/system/shutdown',
@@ -1370,6 +1382,18 @@ class TestPurge:
         data = r.get_json()
         assert data['success'] is True
         assert data['deleted'] >= 1
+
+        audit = client.get('/api/audit-log', headers=self._headers())
+        assert audit.status_code == 200
+        audit_data = audit.get_json()
+        assert audit_data['success'] is True
+
+        purges = [
+            row for row in audit_data.get('registros', [])
+            if row.get('accion') == 'software_database_purge'
+        ]
+        assert purges
+        assert purges[-1]['resultado'] == 'éxito'
 
     def test_purge_sin_filtros_elimina_todo(self, crud_app):
         client, mod = crud_app
@@ -2357,6 +2381,9 @@ class TestCoberturaFuncionalAdicional:
             def fetchall(self):
                 return self._rows
 
+            def fetchone(self):      # ← AGREGAR ESTO
+                return self._rows[0] if self._rows else None
+
         class FakeConnection:
             def execute(self, query, params=()):
                 if "COALESCE(e.grupo" in query:
@@ -2365,6 +2392,11 @@ class TestCoberturaFuncionalAdicional:
                         "simulated missing function"
                     )
 
+                if "auth_fail_log" in query:
+                    class _C:
+                        def fetchone(self): return {"n": 0}
+                        def fetchall(self): return []
+                    return _C()
                 return FakeCursor()
 
             def close(self):
@@ -2401,7 +2433,12 @@ class TestCoberturaFuncionalAdicional:
         import sqlite3
 
         class FakeConnection:
-            def execute(self, *args, **kwargs):
+            def execute(self, query="", *args, **kwargs):
+                if "auth_fail_log" in query:
+                    class _C:
+                        def fetchone(self): return {"n": 0}
+                        def fetchall(self): return []
+                    return _C()
                 raise sqlite3.OperationalError(
                     "no such table: audit_log"
                 )
@@ -2425,3 +2462,103 @@ class TestCoberturaFuncionalAdicional:
 
         assert data["success"] is False
         assert "audit_log no disponible" in data["error"]
+
+def test_rate_limit_intentos_fallidos_devuelve_429(crud_app):
+    client, mod = crud_app
+
+    mod._AUTH_FAIL_STORAGE.reset()
+
+    try:
+        for _ in range(5):
+            r = client.get('/api/estadisticas')
+            assert r.status_code == 401
+
+        r = client.get('/api/estadisticas')
+
+        assert r.status_code == 429
+        data = r.get_json()
+        assert data['success'] is False
+        assert 'Demasiados intentos fallidos' in data['error']
+    finally:
+        mod._AUTH_FAIL_STORAGE.reset()
+
+def test_allowed_subnet_bloquea_ip_fuera_de_red(crud_app, monkeypatch):
+    client, mod = crud_app
+
+    monkeypatch.setattr(
+        mod,
+        '_ALLOWED_NETWORKS',
+        [mod.ipaddress.ip_network('192.168.1.0/24')]
+    )
+
+    try:
+        with client.get(
+            '/api/estadisticas',
+            environ_base={'REMOTE_ADDR': '10.0.0.50'}
+        ) as response:
+            assert response.status_code == 403
+            assert response.data == b'Acceso denegado.'
+    finally:
+        monkeypatch.setattr(mod, '_ALLOWED_NETWORKS', None)
+
+def test_allowed_subnet_permite_ip_dentro_de_red(crud_app, monkeypatch):
+    client, mod = crud_app
+
+    monkeypatch.setattr(
+        mod,
+        '_ALLOWED_NETWORKS',
+        [mod.ipaddress.ip_network('192.168.1.0/24')]
+    )
+
+    try:
+        response = client.get(
+            '/api/estadisticas',
+            environ_base={'REMOTE_ADDR': '192.168.1.77'}
+        )
+
+        assert response.status_code == 401
+        assert response.headers.get('WWW-Authenticate') == 'Basic realm="RFID Admin"'
+    finally:
+        monkeypatch.setattr(mod, '_ALLOWED_NETWORKS', None)
+
+def test_allowed_subnet_disabled_no_bloquea_ip_externa(crud_app, monkeypatch):
+    client, mod = crud_app
+
+    monkeypatch.setattr(mod, '_ALLOWED_NETWORKS', None)
+
+    response = client.get(
+        '/api/estadisticas',
+        environ_base={'REMOTE_ADDR': '10.0.0.50'}
+    )
+
+    assert response.status_code == 401
+
+def test_backup_registra_auditoria(crud_app):
+    client, mod = crud_app
+
+    response = client.post(
+        '/api/software/database/backup',
+        headers=basic_auth_headers('admin', 'test-admin-password')
+    )
+
+    assert response.status_code == 200
+
+    audit_response = client.get(
+        '/api/audit-log',
+        headers=basic_auth_headers('admin', 'test-admin-password')
+    )
+
+    assert audit_response.status_code == 200
+
+    data = audit_response.get_json()
+    assert data['success'] is True
+
+    backups = [
+        row for row in data.get('registros', [])
+        if row.get('accion') == 'software_database_backup'
+    ]
+
+    assert backups
+
+    latest = backups[-1]
+    assert latest['resultado'] == 'éxito'

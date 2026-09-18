@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: "pip"
@@ -24,7 +24,7 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements-ci.txt
 
-      - name: Correr tests
+      - name: Correr tests con cobertura
         env:
           ADMIN_USER: admin
           ADMIN_PASSWORD: test-admin-password
@@ -39,12 +39,22 @@ jobs:
             --cov=shared \
             --cov-report=term-missing \
             --cov-report=html \
+            --cov-report=xml \
             -v
 
       - name: Subir reporte de cobertura
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: htmlcov/
-          
+          retention-days: 30
+
+      - name: Resumen en GitHub
+        if: always()
+        run: |
+          echo "## Resultados CI — Sistema RFID ITSOEH" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Python: 3.13" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner: ubuntu-latest" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

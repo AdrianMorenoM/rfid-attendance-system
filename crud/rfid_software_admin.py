@@ -14,12 +14,19 @@ from datetime import datetime
 from typing import Any
 
 # SSH / ejecucion remota — configurar con variables de entorno en produccion.
-SSH_HOST     = os.environ.get('RFID_SSH_HOST', '127.0.0.1')
-SSH_USER     = os.environ.get('RFID_SSH_USER', 'admin')
-SSH_PASSWORD = os.environ.get('RFID_SSH_PASSWORD')  # sin default — obligatorio si se usa SSH
-SSH_PORT     = int(os.environ.get('RFID_SSH_PORT', '22'))
-USE_SSH      = os.environ.get('RFID_USE_SSH', 'auto').lower()
-LOCAL_HOSTS  = frozenset({'127.0.0.1', 'localhost', '::1'})
+# Autenticación SOLO por llave (sin contraseña, sin sshpass): una llave
+# privada dedicada + un known_hosts verificado a mano son el único camino
+# para conectar a un host remoto. Si el host no está en SSH_KNOWN_HOSTS,
+# la conexión se RECHAZA (RejectPolicy) en vez de confiar ciegamente en
+# la llave que presente (eso es lo que hacía AutoAddPolicy, vulnerable a
+# un ataque de intermediario en la primera conexión).
+SSH_HOST        = os.environ.get('RFID_SSH_HOST', '127.0.0.1')
+SSH_USER        = os.environ.get('RFID_SSH_USER', 'admin')
+SSH_KEY_PATH    = os.environ.get('RFID_SSH_KEY_PATH')  # sin default — obligatorio si se usa SSH
+SSH_KNOWN_HOSTS = os.environ.get('RFID_SSH_KNOWN_HOSTS', os.path.expanduser('~/.ssh/known_hosts'))
+SSH_PORT        = int(os.environ.get('RFID_SSH_PORT', '22'))
+USE_SSH         = os.environ.get('RFID_USE_SSH', 'auto').lower()
+LOCAL_HOSTS     = frozenset({'127.0.0.1', 'localhost', '::1'})
 
 
 def _should_use_ssh() -> bool:
@@ -30,10 +37,18 @@ def _should_use_ssh() -> bool:
     return SSH_HOST.strip().lower() not in LOCAL_HOSTS
 
 
-if _should_use_ssh() and not SSH_PASSWORD:
+if _should_use_ssh() and not SSH_KEY_PATH:
     raise RuntimeError(
-        "RFID_SSH_PASSWORD no está definida. Configúrala como variable de "
-        "entorno antes de usar el modo SSH remoto."
+        "RFID_SSH_KEY_PATH no está definida. Configúrala (ruta a una llave "
+        "privada SSH) antes de usar el modo SSH remoto. Ya no se admite "
+        "autenticación por contraseña."
+    )
+if _should_use_ssh() and not os.path.exists(SSH_KNOWN_HOSTS):
+    raise RuntimeError(
+        f"No existe {SSH_KNOWN_HOSTS!r}. Agrega ahí la llave del host remoto, "
+        f"verificada a mano (ej.: ssh-keyscan -H {SSH_HOST} >> {SSH_KNOWN_HOSTS} "
+        f"y comparando la huella con el administrador del otro equipo) antes "
+        f"de usar el modo SSH remoto."
     )
 
 def _run_local(cmd: str, timeout: int = 30) -> dict:
@@ -53,10 +68,25 @@ def _run_local(cmd: str, timeout: int = 30) -> dict:
 def _run_ssh(cmd: str, timeout: int = 30) -> dict:
     try:
         import paramiko
+    except ImportError:
+        return {
+            'success': False,
+            'error': 'paramiko no está instalado; es requerido para SSH remoto '
+                      '(ya no hay fallback por contraseña/sshpass).',
+            'mode': 'ssh',
+        }
+    try:
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        if os.path.exists(SSH_KNOWN_HOSTS):
+            client.load_host_keys(SSH_KNOWN_HOSTS)
+        # RejectPolicy: si la llave del host no está ya en SSH_KNOWN_HOSTS
+        # (o no coincide), la conexión se rechaza en vez de aceptarla a
+        # ciegas. Evita que un atacante en la red se haga pasar por el
+        # host remoto en la primera conexión.
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
         client.connect(
-            SSH_HOST, port=SSH_PORT, username=SSH_USER, password=SSH_PASSWORD,
+            SSH_HOST, port=SSH_PORT, username=SSH_USER,
+            key_filename=SSH_KEY_PATH, password=None,
             timeout=15, allow_agent=False, look_for_keys=False,
         )
         _stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
@@ -65,23 +95,6 @@ def _run_ssh(cmd: str, timeout: int = 30) -> dict:
         code = stdout.channel.recv_exit_status()
         client.close()
         return {'success': code == 0, 'returncode': code, 'stdout': out, 'stderr': err, 'mode': 'ssh'}
-    except ImportError:
-        pass
-    except Exception as exc:
-        return {'success': False, 'error': str(exc), 'mode': 'ssh'}
-    try:
-        wrapped = [
-            'sshpass', '-p', SSH_PASSWORD, 'ssh',
-            '-o', 'StrictHostKeyChecking=no', '-p', str(SSH_PORT),
-            f'{SSH_USER}@{SSH_HOST}', cmd,
-        ]
-        res = subprocess.run(wrapped, capture_output=True, text=True, timeout=timeout)
-        return {
-            'success': res.returncode == 0,
-            'stdout': (res.stdout or '').strip(),
-            'stderr': (res.stderr or '').strip(),
-            'mode': 'ssh-sshpass',
-        }
     except Exception as exc:
         return {'success': False, 'error': str(exc), 'mode': 'ssh'}
 
@@ -91,16 +104,17 @@ def run_shell(cmd: str, timeout: int = 30) -> dict:
         return _run_local(cmd, timeout=timeout)
     return _run_ssh(cmd, timeout=timeout)
 
+WRAPPER_PATH = '/usr/local/bin/rfid-systemctl-wrapper.sh'
+
 
 def run_systemctl(action: str, service: str, timeout: int = 30) -> dict:
     q = shlex.quote(service)
     result = run_shell(f'systemctl {shlex.quote(action)} {q}', timeout=timeout)
     if not result.get('success'):
-        sudo = run_shell(f'sudo -n systemctl {shlex.quote(action)} {q}', timeout=timeout)
+        sudo = run_shell(f'sudo -n {WRAPPER_PATH} {shlex.quote(action)} {q}', timeout=timeout)
         if sudo.get('success') or sudo.get('stdout') or sudo.get('stderr'):
             return sudo
     return result
-
 
 def service_active(service: str) -> bool:
     return run_shell(f'systemctl is-active {shlex.quote(service)}').get('stdout', '').strip() == 'active'
