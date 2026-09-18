@@ -74,12 +74,10 @@ def normalizar_foto(foto):
 
 @app.route('/')
 @app.route('/dashboard')
-@require_basic_auth
 def index():
     return render_template('dashboard.html')
 
 @app.route('/api/estado')
-@require_basic_auth
 def api_estado():
     try:
         conn = get_db()
@@ -166,7 +164,6 @@ def api_estado():
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/api/ultimo-evento')
-@require_basic_auth
 def ultimo_evento():
     try:
         conn = get_db()
