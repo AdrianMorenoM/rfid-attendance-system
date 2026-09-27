@@ -3,9 +3,8 @@
 """RFID Dashboard Service - Puerto 5000"""
 
 from flask import Flask, render_template, jsonify, send_from_directory, request, Response
-import sqlite3, os, traceback, hmac
+import sqlite3, os, hmac
 from datetime import datetime
-from functools import wraps
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -29,15 +28,15 @@ def _check_credentials(username, password):
     pass_ok = hmac.compare_digest((password or "").encode(), os.environ.get('ADMIN_PASSWORD', '').encode())
     return user_ok and pass_ok
 
-def require_basic_auth(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not _check_credentials(auth.username, auth.password):
-            return Response('Autenticación requerida.', 401,
-                            {'WWW-Authenticate': 'Basic realm="RFID Dashboard"'})
-        return f(*args, **kwargs)
-    return wrapper
+@app.before_request
+def enforce_basic_auth():
+    auth = request.authorization
+    if not auth or not _check_credentials(auth.username, auth.password):
+        return Response(
+            'Autenticación requerida.',
+            401,
+            {'WWW-Authenticate': 'Basic realm="RFID Dashboard"'}
+        )
 
 # ===== Rutas =====
 @app.route('/fotos/<path:filename>')
@@ -160,8 +159,12 @@ def api_estado():
             'hourly': hourly,
             'reader_ok': reader_ok,
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+    except Exception:
+        app.logger.exception("Error interno en /api/estado")
+        return jsonify({
+            'success': False,
+            'error': 'Error interno'
+        }), 500
 
 @app.route('/api/ultimo-evento')
 def ultimo_evento():
@@ -193,8 +196,13 @@ def ultimo_evento():
             'carrera':   r.get('carrera')   or 'N/A',
             'foto':      normalizar_foto(r.get('foto')),
         }})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+
+    except Exception:
+        app.logger.exception("Error interno en /api/ultimo-evento")
+        return jsonify({
+            'success': False,
+            'error': 'Error interno'
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=False)
