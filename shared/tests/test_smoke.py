@@ -262,32 +262,32 @@ class TestSmokeDashboard:
 
     @dash_up
     def test_pagina_principal_responde(self):
-        resp = _get(DASH_BASE)
+        resp = _get(DASH_BASE, _AUTH_HEADER)
         assert resp.status == 200
 
     @dash_up
     def test_api_estado_responde(self):
-        resp = _get(f"{DASH_BASE}/api/estado")
+        resp = _get(f"{DASH_BASE}/api/estado", _AUTH_HEADER)
         assert resp.status == 200
         data = json.loads(resp.read())
         assert data["success"]
 
     @dash_up
     def test_api_estado_tiene_hourly_24(self):
-        resp = _get(f"{DASH_BASE}/api/estado")
+        resp = _get(f"{DASH_BASE}/api/estado", _AUTH_HEADER)
         data = json.loads(resp.read())
         assert len(data["hourly"]) == 24
 
     @dash_up
     def test_api_ultimo_evento_responde(self):
-        resp = _get(f"{DASH_BASE}/api/ultimo-evento")
+        resp = _get(f"{DASH_BASE}/api/ultimo-evento", _AUTH_HEADER)
         data = json.loads(resp.read())
         assert data["success"]
         # evento puede ser None si no hay registros hoy
 
     @dash_up
     def test_dashboard_ruta_alternativa(self):
-        resp = _get(f"{DASH_BASE}/dashboard")
+        resp = _get(f"{DASH_BASE}/dashboard", _AUTH_HEADER)
         assert resp.status == 200
 
 
