@@ -681,6 +681,7 @@ def hardware_services():
     return jsonify({'success': True, 'services': _obtener_estado_servicios()})
 
 @app.route('/api/hardware/services/<service_name>/<action>', methods=['POST'])
+@require_xhr_header
 @api
 def hardware_service_action(service_name, action):
     if service_name not in RFID_SERVICES:
@@ -731,6 +732,7 @@ def hardware_network_status():
     return jsonify({'success': True, 'network': _network_status()})
 
 @app.route('/api/hardware/network/scan', methods=['POST'])
+@require_xhr_header
 @api
 def hardware_network_scan():
     iface = _wifi_iface()
@@ -742,6 +744,7 @@ def hardware_network_scan():
     return jsonify({'success': True, 'network': _network_status()})
 
 @app.route('/api/hardware/network/connect', methods=['POST'])
+@require_xhr_header
 @api
 def hardware_network_connect():
     data     = request.get_json(force=True, silent=True) or {}
@@ -768,6 +771,7 @@ def hardware_network_connect():
     return jsonify({'success': True, 'result': result, 'network': _network_status()})
 
 @app.route('/api/hardware/network/disconnect', methods=['POST'])
+@require_xhr_header
 @api
 def hardware_network_disconnect():
     iface = _wifi_iface()
@@ -780,6 +784,7 @@ def hardware_network_disconnect():
     return jsonify({'success': True, 'result': result, 'network': _network_status()})
 
 @app.route('/api/hardware/network/restart', methods=['POST'])
+@require_xhr_header
 @api
 def hardware_network_restart():
     result = _systemctl('restart', 'NetworkManager.service')
@@ -842,6 +847,7 @@ def software_services_list():
     return jsonify({'success': True, 'services': _obtener_estado_servicios()})
 
 @app.route('/api/software/services/<service_name>/<action>', methods=['POST'])
+@require_xhr_header
 @api
 def software_service_action(service_name, action):
     if service_name not in RFID_SERVICES:  # pragma: no cover
@@ -977,6 +983,7 @@ def _crear_backup() -> dict:
     }
 
 @app.route('/api/software/database/backup', methods=['POST'])
+@require_xhr_header
 @api
 def software_database_backup():
     try:
@@ -1038,6 +1045,7 @@ def software_database_download(filename):  # pragma: no cover
                     headers={'Content-Disposition': f'attachment; filename={filename}'})
 
 @app.route('/api/software/database/backups/<filename>', methods=['DELETE'])
+@require_xhr_header
 @api
 def software_database_delete_backup(filename):
     confirm = request.args.get('confirm') or (request.get_json(silent=True) or {}).get('confirm')
@@ -1054,6 +1062,7 @@ def software_database_delete_backup(filename):
     return jsonify({'success': True, 'mensaje': f'Respaldo {filename} eliminado'})
 
 @app.route('/api/software/database/purge/preview', methods=['POST'])
+@require_xhr_header
 @api
 def software_database_purge_preview():
     data = request.get_json(force=True, silent=True) or {}
@@ -1158,6 +1167,7 @@ def _purge_execute(data: dict) -> dict:
 
 # ===== RFID escucha activa =====
 @app.route('/api/rfid/listen/start', methods=['POST'])
+@require_xhr_header
 @api
 def rfid_listen_start():
     data = request.get_json(force=True, silent=True) or {}
@@ -1179,6 +1189,7 @@ def rfid_listen_status():
     return jsonify({'success': True, **state})
 
 @app.route('/api/rfid/listen/stop', methods=['POST'])
+@require_xhr_header
 @api
 def rfid_listen_stop():
     with _rfid_listen_lock:
@@ -1186,6 +1197,7 @@ def rfid_listen_stop():
     return jsonify({'success': True, 'mensaje': 'Escucha cancelada'})
 
 @app.route('/api/rfid/listen/capture', methods=['POST'])
+@require_xhr_header
 @api
 def rfid_listen_capture():
     d   = request.get_json(force=True)
@@ -1244,6 +1256,7 @@ def _leer_uid_admin() -> tuple[str | None, str | None]:
     return (parts[1].strip(), parts[0].strip()) if len(parts) == 2 else (parts[0].strip(), datetime.now().isoformat())
 
 @app.route('/api/rfid/admin-scan/start', methods=['POST'])
+@require_xhr_header
 @api
 def admin_scan_start():
     data = request.get_json(force=True, silent=True) or {}
@@ -1287,6 +1300,7 @@ def admin_scan_status():
         return jsonify({'success': True, 'active': _admin_scan_state['active'], 'uids': list(_admin_scan_state['uids'])})
 
 @app.route('/api/rfid/admin-scan/stop', methods=['POST'])
+@require_xhr_header
 @api
 def admin_scan_stop():
     for f in (ADMIN_FLAG, ADMIN_UID_FILE):
@@ -1297,6 +1311,7 @@ def admin_scan_stop():
     return jsonify({'success': True, 'mensaje': 'Sesión admin cerrada'})
 
 @app.route('/api/rfid/admin-scan/guardar', methods=['POST'])
+@require_xhr_header
 @api
 def admin_scan_guardar():
     uids = [u.strip() for u in (request.get_json(force=True).get('uids', [])) if u and u.strip()]
@@ -1321,6 +1336,7 @@ def admin_scan_guardar():
     return jsonify({'success': True, 'resultados': resultados, 'guardadas': ok, 'total': len(uids)})
 
 @app.route('/api/rfid/admin-scan/eliminar', methods=['POST'])
+@require_xhr_header
 @api
 def admin_scan_eliminar():
     d      = request.get_json(force=True)
@@ -1366,6 +1382,7 @@ def rfid_desconocidos():
     return jsonify({'success': True, 'desconocidos': [dict(r) for r in rows]})
 
 @app.route('/api/rfid/guardar-uid', methods=['POST'])
+@require_xhr_header
 @api
 def rfid_guardar_uid():
     d   = request.get_json(force=True)
@@ -1515,6 +1532,7 @@ def get_estudiante(est_id):
     return jsonify({'success': True, 'estudiante': dict(row)})
 
 @app.route('/api/estudiantes', methods=['POST'])
+@require_xhr_header
 @api
 def crear_estudiante():
     d    = request.get_json(force=True)
@@ -1529,6 +1547,7 @@ def crear_estudiante():
     return jsonify({'success': True, 'id': new_id, 'mensaje': 'Estudiante creado'})
 
 @app.route('/api/estudiantes/<int:est_id>', methods=['PUT'])
+@require_xhr_header
 @api
 def actualizar_estudiante(est_id):
     d    = request.get_json(force=True)
@@ -1549,6 +1568,7 @@ def actualizar_estudiante(est_id):
     return jsonify({'success': True, 'mensaje': 'Estudiante actualizado'})
 
 @app.route('/api/estudiantes/<int:est_id>', methods=['DELETE'])
+@require_xhr_header
 @api
 def eliminar_estudiante(est_id):
     conn = get_db()
@@ -1567,6 +1587,7 @@ def eliminar_estudiante(est_id):
 
 # ===== Configuraciones globales (promoción, baja, alta masiva) =====
 @app.route('/api/estudiantes/promover', methods=['POST'])
+@require_xhr_header
 @api
 def promover_estudiantes():
     d = request.get_json(force=True) or {}
@@ -1639,6 +1660,7 @@ def baja_masiva():
                     'mensaje': f'{afectados} estudiante(s) {"dados de baja" if d.get("confirmar") else "coinciden"}'})
 
 @app.route('/api/estudiantes/alta-masiva', methods=['POST'])
+@require_xhr_header
 @api
 def alta_masiva():
     d = request.get_json(force=True) or {}
@@ -1714,6 +1736,7 @@ def get_tarjetas():
     return jsonify({'success': True, 'tarjetas': tarjetas, 'total': total, 'limit': limit, 'offset': offset})
 
 @app.route('/api/tarjetas', methods=['POST'])
+@require_xhr_header
 @api
 def crear_tarjeta():
     d   = request.get_json(force=True)
@@ -1729,6 +1752,7 @@ def crear_tarjeta():
     return jsonify({'success': True, 'id': new_id, 'mensaje': 'Tarjeta asignada'})
 
 @app.route('/api/tarjetas/<int:tarj_id>', methods=['PUT'])
+@require_xhr_header
 @api
 def actualizar_tarjeta(tarj_id):
     d = request.get_json(force=True)
@@ -1744,6 +1768,7 @@ def actualizar_tarjeta(tarj_id):
     return jsonify({'success': True, 'mensaje': 'Tarjeta actualizada'})
 
 @app.route('/api/tarjetas/<int:tarj_id>', methods=['DELETE'])
+@require_xhr_header
 @api
 def eliminar_tarjeta(tarj_id):
     conn = get_db()
@@ -1758,6 +1783,7 @@ def eliminar_tarjeta(tarj_id):
     return jsonify({'success': True, 'mensaje': 'Tarjeta eliminada'})
 
 @app.route('/api/tarjetas/bulk-toggle', methods=['POST'])
+@require_xhr_header
 @api
 def bulk_toggle():
     d      = request.get_json(force=True)
@@ -1850,6 +1876,7 @@ EXTS_PERMITIDAS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_DIMENSION_FOTO = 2000
 
 @app.route('/api/upload-foto', methods=['POST'])
+@require_xhr_header
 @api
 def upload_foto():
     if 'foto' not in request.files: return jsonify({'success': False, 'error': 'No se envió archivo'}), 400
@@ -1962,6 +1989,7 @@ if ALLOW_HTTP_MIGRATIONS:
     )
 
 @app.route('/api/migrate', methods=['POST'])
+@require_xhr_header
 @api
 def migrate():
     if not ALLOW_HTTP_MIGRATIONS:

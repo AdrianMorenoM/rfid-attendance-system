@@ -20,3 +20,5 @@ htmlcov/
 # Archivos auxiliares SQLite
 *.db-wal
 *.db-shm
+*.crt
+*.key

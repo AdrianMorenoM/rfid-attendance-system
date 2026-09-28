@@ -3,7 +3,7 @@
 """RFID Dashboard Service - Puerto 5000"""
 
 from flask import Flask, render_template, jsonify, send_from_directory, request, Response
-import sqlite3, os, hmac
+import sqlite3, os
 from datetime import datetime
 
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -21,22 +21,6 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 DB        = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
 FOTOS_DIR = os.path.join(BASE_DIR, "..", "crud", "static", "fotos")
-
-# ===== Auth =====
-def _check_credentials(username, password):
-    user_ok = hmac.compare_digest((username or "").encode(), os.environ.get('ADMIN_USER', '').encode())
-    pass_ok = hmac.compare_digest((password or "").encode(), os.environ.get('ADMIN_PASSWORD', '').encode())
-    return user_ok and pass_ok
-
-@app.before_request
-def enforce_basic_auth():
-    auth = request.authorization
-    if not auth or not _check_credentials(auth.username, auth.password):
-        return Response(
-            'Autenticación requerida.',
-            401,
-            {'WWW-Authenticate': 'Basic realm="RFID Dashboard"'}
-        )
 
 # ===== Rutas =====
 @app.route('/fotos/<path:filename>')
