@@ -99,8 +99,19 @@ crud_up  = pytest.mark.skipif(
     not _is_up(CRUD_BASE, _AUTH_HEADER),
     reason="rfid-crud no disponible",
 )
+def _dash_is_up() -> bool:
+    # El dashboard no tiene /api/health/db (es ruta del CRUD): se comprueba la raiz.
+    try:
+        urllib.request.urlopen(DASH_BASE + "/", timeout=2)
+        return True
+    except urllib.error.HTTPError as e:
+        return e.code in (401, 403)
+    except Exception:
+        return False
+
+
 dash_up  = pytest.mark.skipif(
-    not _is_up(DASH_BASE),
+    not _dash_is_up(),
     reason="rfid-dashboard no disponible",
 )
 
