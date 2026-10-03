@@ -57,10 +57,14 @@ def _escribir_estado(estado: str) -> None:
 # DB helper
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB, timeout=30.0, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        conn.close()   # con una BD corrupta o bloqueada el PRAGMA falla antes del return: no dejar la conexion abierta
+        raise
     return conn
 
 # Modo admin: verificar y notificar vía archivos
