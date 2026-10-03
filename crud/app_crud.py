@@ -1014,13 +1014,40 @@ def software_database_restore():
         return jsonify({'success': False, 'error': str(e)}), 400
     if not os.path.isfile(src):
         return jsonify({'success': False, 'error': 'Respaldo no encontrado'}), 404
-    ts_pre    = datetime.now().strftime('%Y%m%d_%H%M%S')
-    pre_file  = f'rfid_backup_{ts_pre}.db'
-    pre_dest  = os.path.join(BACKUP_DIR, pre_file)
-    shutil.copy2(DB, pre_dest)
-    tmp = DB + '.restore_tmp'
-    shutil.copy2(src, tmp)
-    os.replace(tmp, DB)
+    # Nombre unico para el respaldo de seguridad: nunca pisa un backup existente
+    # (si coincidiera con el archivo a restaurar, se perderia el origen).
+    from datetime import timedelta
+    momento = datetime.now()
+    while True:
+        pre_file = f'rfid_backup_{momento.strftime("%Y%m%d_%H%M%S")}.db'
+        pre_dest = os.path.join(BACKUP_DIR, pre_file)
+        if not os.path.exists(pre_dest):
+            break
+        momento += timedelta(seconds=1)
+
+    def _copiar_sqlite(origen, destino):
+        # API de respaldo de SQLite: copia consistente y coordinada con otras conexiones (WAL).
+        s = sqlite3.connect(origen)
+        d = sqlite3.connect(destino)
+        try:
+            s.backup(d)
+        finally:
+            d.close()
+            s.close()
+
+    # Rechaza un respaldo danado antes de tocar la base viva
+    chk = sqlite3.connect(f'file:{src}?mode=ro', uri=True)
+    try:
+        integro = chk.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+    except sqlite3.DatabaseError:
+        integro = False
+    finally:
+        chk.close()
+    if not integro:
+        return jsonify({'success': False, 'error': 'El respaldo esta danado'}), 422
+
+    _copiar_sqlite(DB, pre_dest)   # respaldo de seguridad del estado actual
+    _copiar_sqlite(src, DB)        # restaura DENTRO de la BD viva (sin reemplazar el archivo ni dejar -wal/-shm viejos)
     _schema_cache.clear()
     _registrar_auditoria('software_database_restore', f'filename={filename}', 'éxito')
     return jsonify({

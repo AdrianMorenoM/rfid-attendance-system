@@ -134,7 +134,16 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
         veces = c.fetchone()["n"]
 
         tipo = "ya_escaneado" if veces > 0 else "aceptado"
-        msg  = f"Ya registrado ({veces + 1}ª vez hoy)" if veces > 0 else "Acceso permitido"
+        if veces > 0:
+            # Numera el reintento contando todos los escaneos validos de hoy (aceptado + ya_escaneado)
+            c.execute("""
+                SELECT COUNT(*) as n FROM registros_asistencia
+                WHERE uid = ? AND fecha_dia = ?
+                  AND tipo_evento IN ('aceptado', 'ya_escaneado')
+            """, (uid_s, hoy))
+            msg = f"Ya registrado ({c.fetchone()['n'] + 1}ª vez hoy)"
+        else:
+            msg = "Acceso permitido"
 
         c.execute("""
             INSERT INTO registros_asistencia
