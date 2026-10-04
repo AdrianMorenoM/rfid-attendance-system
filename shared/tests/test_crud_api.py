@@ -68,6 +68,56 @@ class TestAutenticacion:
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Decorador require_basic_auth (líneas 65-71 de crud/app_crud.py)
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestRequireBasicAuth:
+    """Ejercita el decorador require_basic_auth directamente, sin pasar por
+    el hook before_request. Verifica su contrato: 401 sin credenciales,
+    401 con credenciales erróneas, y delegación en el camino feliz."""
+
+    def test_sin_authorization_retorna_401(self, crud_app):
+        _, mod = crud_app
+
+        @mod.require_basic_auth
+        def _vista_ficticia():
+            return "no debe llegar aquí"
+
+        with mod.app.test_request_context('/'):
+            resp = _vista_ficticia()
+        assert resp.status_code == 401
+        assert resp.headers['WWW-Authenticate'] == 'Basic realm="RFID Admin"'
+
+    def test_con_credenciales_incorrectas_retorna_401(self, crud_app):
+        _, mod = crud_app
+
+        @mod.require_basic_auth
+        def _vista_ficticia():
+            return "no debe llegar aquí"
+
+        headers = {'Authorization': basic_auth_headers(user="hacker", password="wrong")['Authorization']}
+        with mod.app.test_request_context('/', headers=headers):
+            resp = _vista_ficticia()
+        assert resp.status_code == 401
+
+    def test_con_credenciales_correctas_delega_en_la_vista(self, crud_app):
+        _, mod = crud_app
+
+        marcador = {'llamada': False}
+
+        @mod.require_basic_auth
+        def _vista_ficticia():
+            marcador['llamada'] = True
+            return "ok"
+
+        headers = {'Authorization': basic_auth_headers()['Authorization']}
+        with mod.app.test_request_context('/', headers=headers):
+            resp = _vista_ficticia()
+        assert marcador['llamada'] is True
+        assert resp == "ok"
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Headers de seguridad
 # ────────────────────────────────────────────────────────────────────────────
 

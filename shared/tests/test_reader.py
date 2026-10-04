@@ -151,12 +151,14 @@ class TestModoAdmin:
     def test_notificar_admin_escribe_uid(self, reader_mod, tmp_path):
         reader_mod._notificar_admin_scan("TESTUID1")
         assert os.path.exists(reader_mod.ADMIN_UID_FILE)
-        contenido = open(reader_mod.ADMIN_UID_FILE).read()
+        with open(reader_mod.ADMIN_UID_FILE) as f:
+            contenido = f.read()
         assert "TESTUID1" in contenido
 
     def test_notificar_admin_tiene_timestamp(self, reader_mod):
         reader_mod._notificar_admin_scan("TESTUID2")
-        linea = open(reader_mod.ADMIN_UID_FILE).read().strip()
+        with open(reader_mod.ADMIN_UID_FILE) as f:
+            linea = f.read().strip()
         partes = linea.split("\t")
         assert len(partes) == 2
         # El primer campo debe ser parseable como datetime ISO
@@ -171,17 +173,20 @@ class TestEscribirEstado:
 
     def test_escribe_ok(self, reader_mod):
         reader_mod._escribir_estado("ok")
-        contenido = open(reader_mod.STATUS_FILE).read()
+        with open(reader_mod.STATUS_FILE) as f:
+            contenido = f.read()
         assert "ok" in contenido
 
     def test_escribe_error(self, reader_mod):
         reader_mod._escribir_estado("error")
-        contenido = open(reader_mod.STATUS_FILE).read()
+        with open(reader_mod.STATUS_FILE) as f:
+            contenido = f.read()
         assert "error" in contenido
 
     def test_contiene_timestamp(self, reader_mod):
         reader_mod._escribir_estado("reiniciando")
-        linea  = open(reader_mod.STATUS_FILE).read().strip()
+        with open(reader_mod.STATUS_FILE) as f:
+            linea = f.read().strip()
         partes = linea.split("\t")
         assert len(partes) == 2
         # El segundo campo debe ser un ISO datetime válido

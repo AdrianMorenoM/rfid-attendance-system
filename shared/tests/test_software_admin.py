@@ -14,9 +14,11 @@ Corre con:
 import os
 import re
 import sqlite3
+import subprocess        
 import tempfile
 import shutil
 import sys
+import importlib.util
 import pytest
 from unittest.mock import patch, MagicMock, call
 
@@ -81,44 +83,58 @@ def db_manager(tmp_db, backup_dir):
 
 
 # ===========================================================================
+# Validación de configuración SSH al importar el módulo
+# ===========================================================================
+
+class TestConfiguracionSSH:
+
+    def test_falla_si_ssh_remoto_no_tiene_llave(self, monkeypatch):
+        monkeypatch.setenv('RFID_USE_SSH', 'true')
+        monkeypatch.setenv('RFID_SSH_HOST', '192.168.1.100')
+        monkeypatch.delenv('RFID_SSH_KEY_PATH', raising=False)
+
+        spec = importlib.util.spec_from_file_location(
+            'rfid_software_admin_test_ssh_key',
+            adm.__file__
+        )
+        module = importlib.util.module_from_spec(spec)
+
+        with pytest.raises(
+            RuntimeError,
+            match='RFID_SSH_KEY_PATH no está definida'
+        ):
+            spec.loader.exec_module(module)
+
+    def test_falla_si_ssh_remoto_no_tiene_known_hosts(self, monkeypatch, tmp_path):
+        monkeypatch.setenv('RFID_USE_SSH', 'true')
+        monkeypatch.setenv('RFID_SSH_HOST', '192.168.1.100')
+        monkeypatch.setenv(
+            'RFID_SSH_KEY_PATH',
+            str(tmp_path / 'id_rfid')
+        )
+        monkeypatch.setenv(
+            'RFID_SSH_KNOWN_HOSTS',
+            str(tmp_path / 'known_hosts')
+        )
+
+        spec = importlib.util.spec_from_file_location(
+            'rfid_software_admin_test_ssh_known_hosts',
+            adm.__file__
+        )
+        module = importlib.util.module_from_spec(spec)
+
+        with pytest.raises(
+            RuntimeError,
+            match='No existe'
+        ):
+            spec.loader.exec_module(module)
+
+
+# ===========================================================================
 # _run_local  (líneas 54–65)
 # ===========================================================================
 
 class TestRunLocal:
-
-    def test_comando_exitoso(self):
-        r = adm._run_local('echo hola')
-        assert r['success'] is True
-        assert r['stdout'] == 'hola'
-        assert r['mode'] == 'local'
-
-    def test_comando_fallido_retorna_success_false(self):
-        r = adm._run_local('false')
-        assert r['success'] is False
-        assert r['returncode'] != 0
-
-    def test_comando_inexistente_retorna_success_false(self):
-        r = adm._run_local('comando_que_no_existe_xyzxyz')
-        assert r['success'] is False
-
-    def test_stdout_strip(self):
-        r = adm._run_local('printf "  texto  "')
-        assert r['stdout'] == 'texto'
-
-    def test_timeout_retorna_error(self):
-        r = adm._run_local('sleep 10', timeout=1)
-        assert r['success'] is False
-
-    def test_returncode_presente(self):
-        r = adm._run_local('exit 42', timeout=5)
-        assert 'returncode' in r
-
-
-# ===========================================================================
-# run_shell  (línea 83 — delega a _run_local en modo local)
-# ===========================================================================
-
-class TestRunShell:
 
     def test_delega_a_run_local_en_modo_local(self):
         with patch.object(adm, '_should_use_ssh', return_value=False), \
@@ -134,6 +150,34 @@ class TestRunShell:
         mock_ssh.assert_called_once_with('ls', timeout=10)
         assert result['stdout'] == 'remoto'
 
+    def test_run_local_comando_exitoso_captura_stdout(self):
+        """Camino feliz: subprocess.run real con returncode 0."""
+        result = adm._run_local('echo hola')
+        assert result == {
+            'success': True,
+            'returncode': 0,
+            'stdout': 'hola',
+            'stderr': '',
+            'mode': 'local',
+        }
+
+    def test_run_local_comando_fallido_marca_success_false(self):
+        """returncode != 0 → success=False pero stdout/stderr se siguen reportando."""
+        result = adm._run_local('exit 7')
+        assert result['success'] is False
+        assert result['returncode'] == 7
+        assert result['stdout'] == ''
+        assert result['stderr'] == ''
+        assert result['mode'] == 'local'
+
+    def test_run_local_captura_excepcion_y_retorna_error(self):
+        """Si subprocess.run lanza (p.ej. TimeoutExpired) → dict de error controlado."""
+        exc = subprocess.TimeoutExpired(cmd='sleep 99', timeout=1)
+        with patch.object(adm.subprocess, 'run', side_effect=exc):
+            result = adm._run_local('sleep 99', timeout=1)
+        assert result['success'] is False
+        assert result['mode'] == 'local'
+        assert 'timed out' in result['error']
 
 # ===========================================================================
 # run_systemctl  (líneas 87–97)
@@ -383,7 +427,7 @@ class TestDatabaseManagerBackup:
         assert path.startswith(backup_dir)
 
 
-# ===========================================================================
+# =========================================================================== 
 # DatabaseManager.restore  (líneas ~307–325)
 # ===========================================================================
 
@@ -403,11 +447,29 @@ class TestDatabaseManagerRestore:
         assert safety is not None
         assert os.path.isfile(os.path.join(backup_dir, safety))
 
+    def test_restore_falla_si_no_puede_crear_safety_backup(
+        self, db_manager, monkeypatch
+    ):
+        backup = db_manager.create_backup()
+
+        monkeypatch.setattr(
+            db_manager,
+            'create_backup',
+            lambda: {
+                'success': False,
+                'error': 'error simulado'
+            }
+        )
+
+        result = db_manager.restore(backup['filename'])
+
+        assert result['success'] is False
+        assert 'respaldo de seguridad' in result['error'].lower()
+
     def test_restore_archivo_inexistente_retorna_error(self, db_manager):
         result = db_manager.restore('rfid_backup_20000101_000000.db')
         assert result['success'] is False
         assert 'no encontrado' in result['error'].lower()
-
 
 # ===========================================================================
 # DatabaseManager.purge_preview / purge  (líneas ~326–416)
@@ -644,10 +706,14 @@ class TestShellAndSSH:
 
 class TestBackupCoverage:
     def test_list_backups_directorio_inexistente(self, tmp_db, tmp_path):
+        backup_dir = tmp_path / 'directorio_que_no_existe'
+
         manager = adm.DatabaseManager(
             tmp_db,
-            str(tmp_path / 'directorio_que_no_existe')
+            str(backup_dir)
         )
+
+        shutil.rmtree(backup_dir)
 
         assert manager.list_backups() == []
 

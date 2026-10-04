@@ -12,7 +12,7 @@ Ejecutar:
     source venv/bin/activate
     pytest shared/tests/test_dashboard_y_db.py -v
 """
-import os, sys, json, sqlite3, importlib, pytest
+import os, sys, json, sqlite3, importlib, importlib.util, types, pytest
 from unittest.mock import patch
 
 _HERE   = os.path.dirname(os.path.abspath(__file__))
@@ -169,6 +169,109 @@ class TestDashboard:
         url = "https://ejemplo.com/foto.jpg"
         assert mod.normalizar_foto(url) == url
 
+    def test_serve_foto_invoca_send_from_directory(self, dash_app):
+        """La ruta /fotos/<path:filename> ejecuta send_from_directory.
+
+        El archivo no existe, pero la línea del `return` se ejecuta igual:
+        send_from_directory devuelve 404 sin cortocircuitar la función.
+        """
+        client, _ = dash_app
+        r = client.get("/fotos/archivo_inexistente.jpg")
+        assert r.status_code in (200, 404)
+
+    def test_api_estado_reader_ok_false_si_subprocess_falla(self, dash_app):
+        """Si subprocess.run lanza, el except interno deja reader_ok=False."""
+        client, _ = dash_app
+        with patch("subprocess.run",
+                   side_effect=RuntimeError("fallo simulado de systemctl")):
+            r = client.get("/api/estado")
+        assert r.status_code == 200
+        data = json.loads(r.data)
+        assert data["success"] is True
+        assert data["reader_ok"] is False
+
+    def test_api_estado_error_interno_retorna_500(self, dash_app, monkeypatch):
+        """Si get_db() falla, se ejecuta el except externo → 500."""
+        client, mod = dash_app
+
+        def _boom():
+            raise RuntimeError("fallo simulado en get_db")
+
+        monkeypatch.setattr(mod, "get_db", _boom)
+        r = client.get("/api/estado")
+        assert r.status_code == 500
+        data = json.loads(r.data)
+        assert data["success"] is False
+        assert data["error"] == "Error interno"
+
+    def test_api_ultimo_evento_error_interno_retorna_500(
+        self, dash_app, monkeypatch
+    ):
+        """Análogo al anterior, para /api/ultimo-evento."""
+        client, mod = dash_app
+
+        def _boom():
+            raise RuntimeError("fallo simulado en get_db")
+
+        monkeypatch.setattr(mod, "get_db", _boom)
+        r = client.get("/api/ultimo-evento")
+        assert r.status_code == 500
+        data = json.loads(r.data)
+        assert data["success"] is False
+        assert data["error"] == "Error interno"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Código ejecutado al importar y bloque __main__
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestDashboardImportYMain:
+    """Cubre la rama del try de load_dotenv() y el bloque __main__."""
+
+    def test_load_dotenv_se_ejecuta_al_importar_si_dotenv_esta_disponible(
+        self, dash_app
+    ):
+        """Reimporta app_dashboard con un módulo 'dotenv' simulado en
+        sys.modules para forzar la rama que SÍ ejecuta load_dotenv(),
+        sin depender de que python-dotenv esté instalado en el entorno.
+        """
+        fake_dotenv = types.ModuleType("dotenv")
+        llamado = []
+
+        def _fake_load_dotenv(*args, **kwargs):
+            llamado.append(True)
+
+        fake_dotenv.load_dotenv = _fake_load_dotenv
+
+        with patch.dict(sys.modules, {"dotenv": fake_dotenv}):
+            spec = importlib.util.spec_from_file_location(
+                "app_dashboard_import_test",
+                sys.modules["app_dashboard"].__file__,
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        assert llamado == [True]
+
+    def test_main_block_ejecuta_app_run(self):
+        """Ejecutar el módulo como __main__ debe llamar a app.run(...).
+
+        Se parchea Flask.run a nivel de clase (no de instancia) para
+        interceptar la llamada sin levantar un servidor real.
+        """
+        from flask import Flask as _Flask
+
+        app_mod = sys.modules["app_dashboard"]
+
+        with patch.object(_Flask, "run") as mock_run:
+            spec = importlib.util.spec_from_file_location(
+                "__main__", app_mod.__file__
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        mock_run.assert_called_once_with(
+            host="127.0.0.1", port=5000, debug=False
+        )
 
 # ────────────────────────────────────────────────────────────────────────────
 # Base de datos — schema e integridad

@@ -296,13 +296,15 @@ class TestEscribirEstado:
         with patch.object(reader, 'STATUS_FILE', status_file):
             reader._escribir_estado('ok')
         assert os.path.isfile(status_file)
-        assert 'ok' in open(status_file).read()
+        with open(status_file) as f:
+            assert 'ok' in f.read()
 
     def test_estado_incluye_timestamp(self, tmp_path):
         status_file = str(tmp_path / 'rfid_reader_status')
         with patch.object(reader, 'STATUS_FILE', status_file):
             reader._escribir_estado('reiniciando')
-        assert 'T' in open(status_file).read()
+        with open(status_file) as f:
+            assert 'T' in f.read()
 
     def test_crea_directorio_si_no_existe(self, tmp_path):
         status_file = str(tmp_path / 'subdir' / 'status')
@@ -344,13 +346,15 @@ class TestNotificarAdminScan:
         uid_file = str(tmp_path / 'rfid_admin_uid')
         with patch.object(reader, 'ADMIN_UID_FILE', uid_file):
             reader._notificar_admin_scan('AABBCCDD')
-        assert 'AABBCCDD' in open(uid_file).read()
+        with open(uid_file) as f:
+            assert 'AABBCCDD' in f.read()
 
     def test_archivo_incluye_timestamp(self, tmp_path):
         uid_file = str(tmp_path / 'rfid_admin_uid')
         with patch.object(reader, 'ADMIN_UID_FILE', uid_file):
             reader._notificar_admin_scan('AABBCCDD')
-        assert 'T' in open(uid_file).read()
+        with open(uid_file) as f:
+            assert 'T' in f.read()
 
     def test_no_lanza_excepcion_si_falla_escritura(self):
         with patch.object(reader, 'ADMIN_UID_FILE', '/root/prohibido/uid'), \
