@@ -93,8 +93,8 @@ class TestValidarBackup:
         client, m = crud_app
         p = ruta(m, crear(client)["filename"])
         consulta = "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"
-        a = sqlite3.connect(tmp_db).execute(consulta).fetchall()
-        b = sqlite3.connect(p).execute(consulta).fetchall()
+        a = syslib.q(tmp_db).execute(consulta).fetchall()
+        b = syslib.q(p).execute(consulta).fetchall()
         assert a == b
 
     def test_backup_valido_aun_con_escrituras_concurrentes(self, crud_app, tmp_db):
@@ -177,7 +177,7 @@ class TestRestaurar:
         # el respaldo de seguridad conserva el estado previo a la restauración
         seguridad = ruta(m, data["safety_backup"])
         assert os.path.isfile(seguridad)
-        assert sqlite3.connect(seguridad).execute(
+        assert syslib.q(seguridad).execute(
             "SELECT COUNT(*) FROM estudiantes WHERE matricula='POST-1'").fetchone()[0] == 1
 
     def test_exige_confirmacion(self, crud_app, tmp_db):
@@ -247,7 +247,7 @@ class TestVerificarIntegridad:
     def test_conserva_los_indices_unicos(self, crud_app):
         client, m = crud_app
         p = ruta(m, crear(client)["filename"])
-        nombres = {n for (n,) in sqlite3.connect(p).execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        nombres = {n for (n,) in syslib.q(p).execute("SELECT name FROM sqlite_master WHERE type='index'")}
         assert "idx_tarjeta_activa_unica" in nombres
 
     def test_un_archivo_corrupto_se_detecta(self, tmp_path):
@@ -269,7 +269,7 @@ class TestVerificarDatos:
     def test_fila_concreta_presente_en_el_backup(self, crud_app):
         client, m = crud_app
         p = ruta(m, crear(client)["filename"])
-        fila = sqlite3.connect(p).execute(
+        fila = syslib.q(p).execute(
             "SELECT nombre, apellido_paterno, estado FROM estudiantes WHERE matricula='2023001'").fetchone()
         assert fila == ("Juan", "Pérez", "activo")
 

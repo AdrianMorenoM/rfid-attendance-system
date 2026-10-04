@@ -131,7 +131,7 @@ class TestConexionesSQLite:
         dur = time.time() - t0
         save_perf("sqlite:escrituras_concurrentes", {"escaneos": hilos * escaneos, "segundos": round(dur, 2)})
         assert not errores, f"{len(errores)} errores, p. ej. {errores[0]}"
-        n = sqlite3.connect(tmp_db).execute("SELECT COUNT(*) FROM registros_asistencia").fetchone()[0]
+        n = syslib.q(tmp_db).execute("SELECT COUNT(*) FROM registros_asistencia").fetchone()[0]
         assert n == hilos * escaneos, f"se perdieron registros: {n}/{hilos * escaneos}"
         assert dur < 30
 

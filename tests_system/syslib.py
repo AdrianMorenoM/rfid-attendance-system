@@ -345,3 +345,38 @@ class FakeMFRC522:
         if self.card is None:
             return self.MI_NOTAGERR, None
         return self.anticoll_status, self.card
+
+
+
+# --- Consultas de un solo uso: abre, lee todo y cierra (evita ResourceWarning) ---
+class _Resultado:
+    def __init__(self, filas):
+        self._filas, self._i = list(filas), 0
+
+    def fetchall(self):
+        r, self._i = self._filas[self._i:], len(self._filas)
+        return r
+
+    def fetchone(self):
+        if self._i >= len(self._filas):
+            return None
+        self._i += 1
+        return self._filas[self._i - 1]
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _Consulta:
+    def __init__(self, path, **kw):
+        self._path, self._kw = path, kw
+
+    def execute(self, sql, params=()):
+        from contextlib import closing
+        with closing(sqlite3.connect(self._path, **self._kw)) as c:
+            return _Resultado(c.execute(sql, params).fetchall())
+
+
+def q(path, **kw):
+    """syslib.q(db).execute(sql).fetchone(): como sqlite3.connect(db).execute(...), pero cierra la conexion."""
+    return _Consulta(path, **kw)

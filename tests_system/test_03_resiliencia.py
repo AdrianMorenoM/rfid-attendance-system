@@ -186,7 +186,7 @@ class TestRecuperacionBDNoDisponible:
         dt = time.time() - t0
         assert tipo == "aceptado"
         assert 1.5 <= dt < 10, f"tardó {dt:.1f}s: ¿esperó el bloqueo?"
-        n = sqlite3.connect(tmp_db).execute("SELECT COUNT(*) FROM registros_asistencia").fetchone()[0]
+        n = syslib.q(tmp_db).execute("SELECT COUNT(*) FROM registros_asistencia").fetchone()[0]
         assert n == 1
 
     @pytest.mark.live

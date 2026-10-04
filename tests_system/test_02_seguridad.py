@@ -242,7 +242,7 @@ class TestRateLimiting:
         reset_fallos(m, tmp_db)
         for _ in range(3):
             self.fallar(client)
-        n = sqlite3.connect(tmp_db).execute("SELECT COUNT(*) FROM auth_fail_log").fetchone()[0]
+        n = syslib.q(tmp_db).execute("SELECT COUNT(*) FROM auth_fail_log").fetchone()[0]
         assert n >= 3
 
     def test_fallos_antiguos_no_bloquean(self, crud_app, tmp_db):
@@ -336,10 +336,10 @@ class TestSQLInjection:
                 "carrera": "ITIC's", "semestre": 1, "grupo": "A", "estado": "activo"})
             assert r.status_code < 500, f"{payload!r} → {r.status_code}: {r.get_data(as_text=True)[:120]}"
             if r.status_code < 300:
-                n = sqlite3.connect(tmp_db).execute(
+                n = syslib.q(tmp_db).execute(
                     "SELECT COUNT(*) FROM estudiantes WHERE nombre = ?", (payload,)).fetchone()[0]
                 assert n == 1, f"{payload!r} no se guardó literalmente"
-        assert "estudiantes" in {t for (t,) in sqlite3.connect(tmp_db).execute(
+        assert "estudiantes" in {t for (t,) in syslib.q(tmp_db).execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
 
     def test_uid_hostil_en_el_lector_es_un_uid_desconocido(self, reader, tmp_db):
