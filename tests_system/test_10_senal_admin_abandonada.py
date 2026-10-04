@@ -85,4 +85,4 @@ class TestTimeoutDelEscaneo:
 
     def test_limita_el_timeout_a_lo_que_respeta_el_lector(self, senales_crud):
         client, _, _ = senales_crud
-        assert _iniciar(client, timeout=99999).get_json()["timeout"] == 1800
+        assert _iniciar(client, timeout=99999).get_json()["timeout"] == 600

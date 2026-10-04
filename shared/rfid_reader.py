@@ -68,8 +68,22 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 # Modo admin: verificar y notificar vía archivos
+ADMIN_FLAG_MAX_AGE = 600  # s: el doble de lo que dura una sesión normal (300 s); más viejo = abandonada
+
 def _modo_admin_activo() -> bool:
-    return os.path.exists(ADMIN_FLAG)
+    try:
+        edad = time.time() - os.path.getmtime(ADMIN_FLAG)
+    except FileNotFoundError:
+        return False
+    if edad > ADMIN_FLAG_MAX_AGE:
+        # la web se cerró sin terminar la sesión: sin esto el lector dejaría de registrar asistencia
+        log.warning("Señal de modo admin abandonada (%d s): se ignora y se elimina", edad)
+        try:
+            os.remove(ADMIN_FLAG)
+        except OSError:
+            pass
+        return False
+    return True
 
 def _notificar_admin_scan(uid_s: str) -> None:
     """Escribe UID en archivo de señal para el CRUD (con bloqueo exclusivo)."""

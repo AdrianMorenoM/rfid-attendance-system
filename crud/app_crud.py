@@ -1291,7 +1291,13 @@ def _leer_uid_admin() -> tuple[str | None, str | None]:
 @api
 def admin_scan_start():
     data = request.get_json(force=True, silent=True) or {}
-    timeout_s = data.get('timeout', 300)
+    try:
+        timeout_s = int(data.get('timeout', 300))
+    except (TypeError, ValueError, OverflowError):
+        return jsonify({'success': False, 'error': 'timeout debe ser un número de segundos'}), 400
+    if timeout_s <= 0:
+        return jsonify({'success': False, 'error': 'timeout debe ser positivo'}), 400
+    timeout_s = min(timeout_s, 600)   # el lector descarta señales de más de 10 min (ADMIN_FLAG_MAX_AGE)
     try:
         with open(ADMIN_FLAG, 'w') as f:
             f.write(datetime.now().isoformat())
