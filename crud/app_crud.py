@@ -254,10 +254,14 @@ _admin_scan_lock  = threading.Lock()
 # ===== DB helpers =====
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB, timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        conn.close()   # si el PRAGMA falla (BD corrupta o bloqueada) no dejar la conexion abierta
+        raise
     return conn
 
 # Asegura que exista la tabla de rate-limiting de auth aunque no se haya

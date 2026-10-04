@@ -157,3 +157,63 @@ def test_get_db_del_lector_cierra_la_conexion_si_falla_la_configuracion(reader, 
     with pytest.raises(sqlite3.DatabaseError):
         reader.get_db()
     assert falsa.cerrada, "get_db dejó abierta la conexión cuando el PRAGMA falló"
+
+
+def test_get_db_del_crud_cierra_la_conexion_si_falla_la_configuracion(crud_app, monkeypatch):
+    _, m = crud_app
+
+    class _Falsa:
+        cerrada = False
+        row_factory = None
+
+        def execute(self, *_):
+            raise sqlite3.DatabaseError("file is not a database")
+
+        def close(self):
+            self.cerrada = True
+
+    falsa = _Falsa()
+    monkeypatch.setattr(m.sqlite3, "connect", lambda *a, **k: falsa)
+    with pytest.raises(sqlite3.DatabaseError):
+        m.get_db()
+    assert falsa.cerrada, "get_db del CRUD dejó abierta la conexión cuando el PRAGMA falló"
+
+
+def test_get_db_del_crud_cierra_la_conexion_si_falla_la_configuracion(crud_app, monkeypatch):
+    _, m = crud_app
+
+    class _Falsa:
+        cerrada = False
+        row_factory = None
+
+        def execute(self, *_):
+            raise sqlite3.DatabaseError("file is not a database")
+
+        def close(self):
+            self.cerrada = True
+
+    falsa = _Falsa()
+    monkeypatch.setattr(m.sqlite3, "connect", lambda *a, **k: falsa)
+    with pytest.raises(sqlite3.DatabaseError):
+        m.get_db()
+    assert falsa.cerrada, "get_db del CRUD dejó abierta la conexión cuando el PRAGMA falló"
+
+
+def test_get_db_del_crud_cierra_la_conexion_si_falla_la_configuracion(crud_app, monkeypatch):
+    _, m = crud_app
+
+    class _Falsa:
+        cerrada = False
+        row_factory = None
+
+        def execute(self, *_):
+            raise sqlite3.DatabaseError("file is not a database")
+
+        def close(self):
+            self.cerrada = True
+
+    falsa = _Falsa()
+    monkeypatch.setattr(m.sqlite3, "connect", lambda *a, **k: falsa)
+    with pytest.raises(sqlite3.DatabaseError):
+        m.get_db()
+    assert falsa.cerrada, "get_db del CRUD dejó abierta la conexión cuando el PRAGMA falló"
