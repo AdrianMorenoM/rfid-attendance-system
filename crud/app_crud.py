@@ -33,7 +33,7 @@ app = Flask(__name__)
 # la IP real del cliente y no la de nginx (127.0.0.1). x_for=1 porque
 # hay exactamente UN proxy de confianza (nuestro nginx) delante.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger('crud')
