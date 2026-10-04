@@ -48,7 +48,7 @@ def main():
 
         freelist_before = conn.execute("PRAGMA freelist_count").fetchone()[0]
         if args.pages:
-            conn.execute("PRAGMA incremental_vacuum(?)", (args.pages,))
+            conn.execute(f"PRAGMA incremental_vacuum({args.pages})")
         else:
             conn.execute("PRAGMA incremental_vacuum")
         conn.commit()

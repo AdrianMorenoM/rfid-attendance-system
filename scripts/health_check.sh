@@ -29,3 +29,10 @@ if [ "$RESPONSE" != "200" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - FALLO: health check devolvió $RESPONSE" \
         >> /home/admin/rfid-system/logs/health_check.log
 fi
+
+# Verificar que rfid-reader esté activo
+if ! systemctl is-active --quiet rfid-reader.service; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - FALLO: rfid-reader.service no está activo — reiniciando" \
+        >> /home/admin/rfid-system/logs/health_check.log
+    sudo systemctl restart rfid-reader.service
+fi
