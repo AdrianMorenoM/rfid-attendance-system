@@ -863,7 +863,7 @@ main {
 
         const ini = getInitials(nombre||'');
         if (foto) {
-            photoEl.innerHTML = `<img src="${foto}" alt="${ini}"
+            photoEl.innerHTML = `<img src="${esc(foto)}" alt="${ini}"
                 onerror="this.parentElement.innerHTML='<div class=\\'photo-initials\\'>${ini}</div>'">`;
         } else {
             photoEl.innerHTML = `<div class="photo-initials">${ini}</div>`;
@@ -966,12 +966,14 @@ main {
         if(e.target===this){closeModal();resetScanState();}
     });
 
+    const esc = s => String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     // ===== Helpers de foto =====
     function buildFotoSrc(foto) {
         if (!foto) return '';
-        if (foto.startsWith('http') || foto.startsWith('/')) return foto;
+        if (foto.startsWith('http') || foto.startsWith('/')) return esc(foto);
         const filename = foto.split('/').pop();
-        return `/fotos/${filename}`;
+        return esc(`/fotos/${filename}`);
     }
 
     // ===== Sonidos =====
@@ -1025,7 +1027,7 @@ main {
     // ===== Avatar + log =====
     function getInitials(nombre){
         const parts=(nombre||'').trim().split(' ');
-        return (parts[0]?.[0]||'')+(parts[1]?.[0]||'')||'?';
+        return ((parts[0]?.[0]||'')+(parts[1]?.[0]||'')).replace(/[^\p{L}\p{N}]/gu,'')||'?';
     }
     function avatarStyle(nombre){
         const pal=[
@@ -1061,8 +1063,8 @@ main {
         entry.innerHTML=`
             <div class="av-circle" style="background:${st.bg};color:${st.color}">${avInner}</div>
             <div class="av-info">
-                <div class="av-name">${ev.nombre}</div>
-                <div class="av-mat">${ev.matricula}</div>
+                <div class="av-name">${esc(ev.nombre)}</div>
+                <div class="av-mat">${esc(ev.matricula)}</div>
             </div>
             <div class="av-right">
                 <div class="av-time">${ts}</div>

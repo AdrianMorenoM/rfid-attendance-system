@@ -60,6 +60,17 @@ def normalizar_foto(foto):
 def index():
     return render_template('dashboard.html')
 
+STATUS_FILE = "/run/rfid-shared/rfid_reader_status"
+
+def _reader_heartbeat_ok(max_age=30):
+    try:
+        with open(STATUS_FILE) as f:
+            estado, ts = f.read().strip().split("\t", 1)
+        edad = (datetime.now() - datetime.fromisoformat(ts)).total_seconds()
+        return estado == "ok" and edad < max_age
+    except Exception:
+        return False
+
 @app.route('/api/estado')
 def api_estado():
     try:
@@ -131,7 +142,7 @@ def api_estado():
             import subprocess
             res = subprocess.run(['systemctl','is-active','rfid-reader'],
                                  capture_output=True, text=True, timeout=2)
-            reader_ok = res.stdout.strip() == 'active'
+            reader_ok = (res.stdout.strip() == 'active') and _reader_heartbeat_ok()
         except Exception:
             reader_ok = False
 
