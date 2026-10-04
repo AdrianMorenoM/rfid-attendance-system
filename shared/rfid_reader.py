@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Lector RFID para Raspberry Pi 4 + RC522 (SPI)."""
 
-import sqlite3, os, time, signal, sys, logging, fcntl
+import sqlite3, os, time, signal, sys, logging, fcntl, socket
 from datetime import datetime
 
 # Logging
@@ -174,6 +174,47 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
         conn.close()
 
 # Signal handler
+HB_S = 5
+_hb_fallos = 0
+
+def _sd_notify(msg: str) -> None:
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return
+    if addr[0] == "@":
+        addr = "\0" + addr[1:]
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.connect(addr)
+        s.sendall(msg.encode())
+    except OSError:
+        pass
+    finally:
+        s.close()
+
+def rc522_vivo(reader) -> bool:
+    try:
+        v = reader.Read_MFRC522(0x37)      # VersionReg
+        return v not in (0x00, 0xFF)       # bus desconectado lee 0x00 o 0xFF
+    except Exception:
+        return False
+
+def _heartbeat(reader, ultimo: float) -> float:
+    global _hb_fallos
+    ahora = time.time()
+    if ahora - ultimo < HB_S:
+        return ultimo
+    if rc522_vivo(reader):
+        _hb_fallos = 0
+        _escribir_estado("ok")
+        _sd_notify("WATCHDOG=1")
+    else:
+        _hb_fallos += 1
+        _escribir_estado("error")
+        if _hb_fallos == 1 or _hb_fallos % 12 == 0:
+            log.error("RC522 no responde (VersionReg 0x00/0xFF): revisa el cableado SPI")
+    return ahora
+
 def cleanup(sig=None, _frame=None):
     log.info("Cerrando lector RFID…")
     for f in (ADMIN_FLAG, ADMIN_UID_FILE, STATUS_FILE):
@@ -201,11 +242,17 @@ def main():  # pragma: no cover
     reader = MFRC522()
     ultimo_uid = None
     ultimo_t   = 0.0
+    ultimo_hb  = 0.0
+    try:
+        log.info("RC522 VersionReg=0x%02X", reader.Read_MFRC522(0x37))
+    except Exception:
+        log.warning("No se pudo leer VersionReg")
     _escribir_estado("ok")
     log.info("Listo — acerca una tarjeta...")
 
     while True:
         try:
+            ultimo_hb = _heartbeat(reader, ultimo_hb)
             uid_s = leer_uid(reader)
             if uid_s is None:
                 time.sleep(POLL_S)
@@ -213,6 +260,7 @@ def main():  # pragma: no cover
 
             ahora = time.time()
             if uid_s == ultimo_uid and (ahora - ultimo_t) < DEBOUNCE_S:
+                ultimo_t = ahora  # tarjeta aun presente: renueva la ventana
                 time.sleep(POLL_S)
                 continue
 
