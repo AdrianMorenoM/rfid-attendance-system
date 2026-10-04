@@ -24,3 +24,4 @@ htmlcov/
 *.key
 tests_system/reports/
 __pycache__/
+*.bak*
