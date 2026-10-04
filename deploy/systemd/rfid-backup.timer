@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup diario de rfid.db a las 19:00
+
+[Timer]
+OnCalendar=Mon..Fri 19:00
+OnBootSec=3min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
