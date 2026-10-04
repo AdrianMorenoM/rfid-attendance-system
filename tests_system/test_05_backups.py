@@ -135,10 +135,12 @@ class TestValidarBackup:
 
     @pytest.mark.live
     def test_en_vivo_hay_una_tarea_programada_de_backup(self, live):
-        rc, out, err = syslib.sh(["crontab", "-l"])
-        if rc != 0:
-            pytest.skip(f"no se pudo leer crontab: {err}")
-        assert "run_backup.sh" in out, "no hay entrada de cron para scripts/run_backup.sh"
+        """El backup automático lo dispara rfid-backup.timer; una entrada de cron también es válida."""
+        rc, out, _ = syslib.sh(["crontab", "-l"])
+        en_cron = rc == 0 and "run_backup.sh" in out
+        timer = (syslib.sh(["systemctl", "is-enabled", "rfid-backup.timer"])[1].strip() == "enabled"
+                 and syslib.sh(["systemctl", "is-active", "rfid-backup.timer"])[1].strip() == "active")
+        assert en_cron or timer, "no hay backup programado: ni cron para run_backup.sh ni rfid-backup.timer activo"
 
     @pytest.mark.live
     def test_en_vivo_el_ultimo_backup_es_integro(self, live, tmp_path):

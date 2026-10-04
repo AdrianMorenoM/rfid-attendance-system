@@ -965,6 +965,14 @@ def _list_backups() -> list[dict]:
 def software_database_backups():
     return jsonify({'success': True, 'backups': _list_backups()})
 
+def _podar_backups(max_keep: int = 84) -> None:
+    nombres = sorted(n for n in os.listdir(BACKUP_DIR) if _BACKUP_RE.match(n))
+    for n in nombres[:-max_keep]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, n))
+        except OSError:
+            log.exception("No se pudo podar %s", n)
+
 def _crear_backup() -> dict:
     if not os.path.exists(DB):  # pragma: no cover
         raise FileNotFoundError('Base de datos no encontrada')  # pragma: no cover
@@ -994,6 +1002,7 @@ def software_database_backup():
         info = _crear_backup()
     except FileNotFoundError as e:  # pragma: no cover
         return jsonify({'success': False, 'error': str(e)}), 404
+    _podar_backups()
     _registrar_auditoria('software_database_backup', f"filename={info['filename']}", 'éxito')
     return jsonify({
         'success':  True,
