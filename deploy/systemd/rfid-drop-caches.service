@@ -1,0 +1,6 @@
+[Unit]
+Description=Liberar cache de pagina (lo dispara el panel via polkit)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rfid-drop-caches.sh

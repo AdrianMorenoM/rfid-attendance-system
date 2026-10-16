@@ -1,0 +1,28 @@
+// rfid-svc puede controlar SOLO sus servicios y reiniciar/apagar. Nada más.
+polkit.addRule(function(action, subject) {
+    if (subject.user !== "rfid-svc") return polkit.Result.NOT_HANDLED;
+
+    var permitidos = {
+        "rfid-crud.service":        ["start", "stop", "restart"],
+        "rfid-dashboard.service":   ["start", "stop", "restart"],
+        "rfid-reader.service":      ["start", "stop", "restart"],
+        "rfid-drop-caches.service": ["start"]
+    };
+
+    if (action.id === "org.freedesktop.systemd1.manage-units") {
+        var verbos = permitidos[action.lookup("unit")];
+        if (verbos && verbos.indexOf(action.lookup("verb")) >= 0)
+            return polkit.Result.YES;
+        return polkit.Result.NO;
+    }
+
+    var energia = [
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions"
+    ];
+    if (energia.indexOf(action.id) >= 0) return polkit.Result.YES;
+
+    return polkit.Result.NOT_HANDLED;
+});

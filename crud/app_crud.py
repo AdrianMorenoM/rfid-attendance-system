@@ -806,7 +806,7 @@ def hardware_system_optimize():
     if not data.get('confirm'):
         return jsonify({'success': False, 'error': 'Confirmación requerida'}), 400
     _run(['sync'])
-    drop = _run(['sudo', '-n', '/usr/local/bin/rfid-drop-caches.sh'])
+    drop = _run(['systemctl', 'start', 'rfid-drop-caches.service'])
     if not drop.get('success'):
         try:  # pragma: no cover
             with open('/proc/sys/vm/drop_caches', 'w') as f:
