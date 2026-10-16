@@ -844,6 +844,9 @@ def hardware_system_shutdown():
     _registrar_auditoria('hardware_system_shutdown', '', 'éxito' if ok else 'error')
     return jsonify({'success': ok, 'result': result})
 
+import reloj_api
+reloj_api.registrar(app, require_xhr_header, api, _registrar_auditoria)
+
 # ===== Software admin - servicios =====
 @app.route('/api/software/services')
 @api
