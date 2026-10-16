@@ -1,0 +1,14 @@
+[Unit]
+Description=Backup automatico de rfid.db (via API del CRUD)
+After=rfid-crud.service
+Wants=rfid-crud.service
+
+[Service]
+Type=oneshot
+User=admin
+TimeoutStartSec=300
+# Espera hasta 45 s a que el reloj este sincronizado (la Pi no tiene RTC)
+ExecStartPre=/bin/sh -c 'for i in $$(seq 1 45); do [ -e /run/systemd/timesync/synchronized ] && exit 0; sleep 1; done; exit 0'
+# Espera hasta 2 min a que el CRUD acepte conexiones (cualquier respuesta HTTP sirve)
+ExecStartPre=/bin/sh -c 'for i in $$(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:5001/api/health/db && exit 0; sleep 2; done; exit 0'
+ExecStart=/home/admin/rfid-system/scripts/run_backup.sh

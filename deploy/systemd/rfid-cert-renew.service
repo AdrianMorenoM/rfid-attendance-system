@@ -1,0 +1,6 @@
+[Unit]
+Description=Renovar certificado TLS de Tailscale para nginx
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rfid-cert-renew.sh
