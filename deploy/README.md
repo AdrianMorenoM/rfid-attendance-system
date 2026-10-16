@@ -21,3 +21,4 @@ sudo chmod 0440 /etc/sudoers.d/rfid-svc
 echo 'admin ALL=(ALL) NOPASSWD: /bin/systemctl restart rfid-reader.service' | sudo tee /etc/sudoers.d/rfid-health
 sudo chmod 0440 /etc/sudoers.d/rfid-health
 ```
+- El watchdog de red se instala en /usr/local/sbin con: sudo install -o root -g root -m 755 scripts/rfid-network-watchdog.sh /usr/local/sbin/

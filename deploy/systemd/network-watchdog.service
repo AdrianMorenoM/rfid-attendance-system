@@ -1,0 +1,13 @@
+[Unit]
+Description=Watchdog de conectividad Wi-Fi
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/local/sbin/rfid-network-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
