@@ -304,3 +304,75 @@ class TestRamasError:
             reader_mod._notificar_admin_scan("TESTUID")
         finally:
             reader_mod.ADMIN_UID_FILE = original
+
+
+# ── Reloj sin RTC: boot_id, uptime_s, reloj_confiable y deduplicación por arranque ──
+def _reloj_preparar(tmp_db, uid="UIDRELOJ1"):
+    conn = sqlite3.connect(tmp_db)
+    cur = conn.execute(
+        "INSERT INTO estudiantes (nombre, apellido_paterno, matricula) VALUES ('Reloj', 'Prueba', ?)",
+        ("MREL-" + uid,))
+    conn.execute("INSERT INTO tarjetas (uid, id_estudiante, activa) VALUES (?, ?, 1)", (uid, cur.lastrowid))
+    conn.commit()
+    conn.close()
+
+
+def _reloj_sin_sincronizar(reader_mod, monkeypatch, tmp_path, boot):
+    monkeypatch.setattr(reader_mod, "MARCAS_RELOJ_OK", (str(tmp_path / "no_existe"),))
+    monkeypatch.setattr(reader_mod, "_boot_id", lambda: boot)
+
+
+def test_reloj_confiable_deduplica_por_fecha(reader_mod, tmp_db):
+    _reloj_preparar(tmp_db)
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "aceptado"
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "ya_escaneado"
+
+
+def test_reloj_no_confiable_ignora_registros_previos_por_fecha(reader_mod, tmp_db, monkeypatch, tmp_path):
+    _reloj_preparar(tmp_db)
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "INSERT INTO registros_asistencia (uid, fecha_dia, tipo_evento, mensaje) VALUES ('UIDRELOJ1', ?, 'aceptado', 'previo')",
+        (hoy,))
+    conn.commit()
+    conn.close()
+    _reloj_sin_sincronizar(reader_mod, monkeypatch, tmp_path, "boot-A")
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "aceptado"
+
+
+def test_reloj_no_confiable_deduplica_dentro_del_mismo_arranque(reader_mod, tmp_db, monkeypatch, tmp_path):
+    _reloj_preparar(tmp_db)
+    _reloj_sin_sincronizar(reader_mod, monkeypatch, tmp_path, "boot-A")
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "aceptado"
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "ya_escaneado"
+
+
+def test_reloj_no_confiable_acepta_de_nuevo_en_otro_arranque(reader_mod, tmp_db, monkeypatch, tmp_path):
+    _reloj_preparar(tmp_db)
+    _reloj_sin_sincronizar(reader_mod, monkeypatch, tmp_path, "boot-A")
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "aceptado"
+    monkeypatch.setattr(reader_mod, "_boot_id", lambda: "boot-B")
+    assert reader_mod.procesar("UIDRELOJ1")[0] == "aceptado"
+
+
+def test_se_guardan_boot_id_uptime_y_reloj(reader_mod, tmp_db, monkeypatch, tmp_path):
+    _reloj_preparar(tmp_db)
+    _reloj_sin_sincronizar(reader_mod, monkeypatch, tmp_path, "boot-X")
+    reader_mod.procesar("UIDRELOJ1")
+    conn = sqlite3.connect(tmp_db)
+    fila = conn.execute(
+        "SELECT boot_id, uptime_s, reloj_confiable FROM registros_asistencia WHERE uid = 'UIDRELOJ1'").fetchone()
+    conn.close()
+    assert fila[0] == "boot-X"
+    assert fila[1] is not None and fila[1] > 0
+    assert fila[2] == 0
+
+
+def test_bd_sin_columnas_de_reloj_se_migra_sola(reader_mod, tmp_db):
+    _reloj_preparar(tmp_db)
+    reader_mod.procesar("UIDRELOJ1")
+    conn = sqlite3.connect(tmp_db)
+    columnas = {f[1] for f in conn.execute("PRAGMA table_info(registros_asistencia)")}
+    conn.close()
+    assert {"boot_id", "uptime_s", "reloj_confiable"} <= columnas

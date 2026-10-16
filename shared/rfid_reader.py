@@ -110,10 +110,11 @@ def leer_uid(reader) -> str | None:
 
 # ── Estado del reloj (la Pi no tiene RTC) ─────────────────────────────────
 BOOT_ID_FILE = "/proc/sys/kernel/random/boot_id"
-MARCAS_RELOJ_OK = (
-    "/run/systemd/timesync/synchronized",  # lo crea systemd-timesyncd al sincronizar
+MARCAS_RELOJ_OK = tuple(os.environ.get(
+    "RFID_MARCAS_RELOJ",
+    "/run/systemd/timesync/synchronized:"  # lo crea systemd-timesyncd al sincronizar
     "/run/rfid-shared/reloj_manual_ok",    # lo creará el panel al fijar la hora a mano
-)
+).split(":"))
 COLUMNAS_RELOJ = (("boot_id", "TEXT"), ("uptime_s", "REAL"), ("reloj_confiable", "INTEGER"))
 _boot_id_cache = None
 
@@ -197,20 +198,25 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
             _registrar(conn, tarjeta["id_estudiante"], uid_s, ts, hoy, "rebote", motivo, meta)
             return "rebote", nombre, motivo
 
-        c.execute("""
+        if meta[2]:
+            filtro, args = "fecha_dia = ?", (hoy,)
+        else:  # reloj sin sincronizar: la fecha no es fiable, se agrupa por arranque
+            asegurar_columnas_reloj(conn)
+            filtro, args = "boot_id = ? AND reloj_confiable = 0", (meta[0],)
+        c.execute(f"""
             SELECT COUNT(*) as n FROM registros_asistencia
-            WHERE uid = ? AND fecha_dia = ? AND tipo_evento = 'aceptado'
-        """, (uid_s, hoy))
+            WHERE uid = ? AND {filtro} AND tipo_evento = 'aceptado'
+        """, (uid_s, *args))
         veces = c.fetchone()["n"]
 
         tipo = "ya_escaneado" if veces > 0 else "aceptado"
         if veces > 0:
             # Numera el reintento contando todos los escaneos validos de hoy (aceptado + ya_escaneado)
-            c.execute("""
+            c.execute(f"""
                 SELECT COUNT(*) as n FROM registros_asistencia
-                WHERE uid = ? AND fecha_dia = ?
+                WHERE uid = ? AND {filtro}
                   AND tipo_evento IN ('aceptado', 'ya_escaneado')
-            """, (uid_s, hoy))
+            """, (uid_s, *args))
             msg = f"Ya registrado ({c.fetchone()['n'] + 1}ª vez hoy)"
         else:
             msg = "Acceso permitido"

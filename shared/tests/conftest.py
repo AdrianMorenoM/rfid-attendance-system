@@ -182,3 +182,11 @@ def client(crud_app):
 def db(crud_app):
     client, module = crud_app
     return module.DB
+
+
+# ── Reloj sin RTC: en los tests la hora se considera sincronizada por defecto ──
+@pytest.fixture(autouse=True)
+def _reloj_confiable_por_defecto(tmp_path_factory, monkeypatch):
+    marca = tmp_path_factory.mktemp("reloj") / "ok"
+    marca.write_text("")
+    monkeypatch.setenv("RFID_MARCAS_RELOJ", str(marca))
