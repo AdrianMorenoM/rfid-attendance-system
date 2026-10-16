@@ -108,10 +108,72 @@ def leer_uid(reader) -> str | None:
         uid_int = (uid_int << 8) | b
     return str(uid_int)
 
+# ── Estado del reloj (la Pi no tiene RTC) ─────────────────────────────────
+BOOT_ID_FILE = "/proc/sys/kernel/random/boot_id"
+MARCAS_RELOJ_OK = (
+    "/run/systemd/timesync/synchronized",  # lo crea systemd-timesyncd al sincronizar
+    "/run/rfid-shared/reloj_manual_ok",    # lo creará el panel al fijar la hora a mano
+)
+COLUMNAS_RELOJ = (("boot_id", "TEXT"), ("uptime_s", "REAL"), ("reloj_confiable", "INTEGER"))
+_boot_id_cache = None
+
+
+def _boot_id() -> str:
+    global _boot_id_cache
+    if _boot_id_cache is None:
+        try:
+            with open(BOOT_ID_FILE) as f:
+                _boot_id_cache = f.read().strip()
+        except OSError:
+            _boot_id_cache = "desconocido"
+    return _boot_id_cache
+
+
+def _meta_reloj() -> tuple:
+    """(boot_id, segundos desde el arranque, 1 si la hora es confiable)."""
+    confiable = 1 if any(os.path.exists(p) for p in MARCAS_RELOJ_OK) else 0
+    return _boot_id(), round(time.clock_gettime(time.CLOCK_BOOTTIME), 3), confiable
+
+
+def asegurar_columnas_reloj(conn: sqlite3.Connection) -> None:
+    """Añade las columnas de reloj si faltan (idempotente)."""
+    existentes = {fila[1] for fila in conn.execute("PRAGMA table_info(registros_asistencia)")}
+    for nombre, tipo in COLUMNAS_RELOJ:
+        if nombre not in existentes:
+            try:
+                conn.execute(f"ALTER TABLE registros_asistencia ADD COLUMN {nombre} {tipo}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
+    conn.commit()
+
+
+_SQL_REGISTRO = """
+    INSERT INTO registros_asistencia
+        (id_estudiante, uid, timestamp, fecha_dia, tipo_evento, mensaje,
+         boot_id, uptime_s, reloj_confiable)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _registrar(conn, id_estudiante, uid_s, ts, hoy, tipo, mensaje, meta) -> None:
+    params = (id_estudiante, uid_s, ts, hoy, tipo, mensaje, *meta)
+    try:
+        conn.execute(_SQL_REGISTRO, params)
+    except sqlite3.OperationalError as exc:
+        texto = str(exc).lower()
+        if "no column named" not in texto and "no such column" not in texto:
+            raise
+        asegurar_columnas_reloj(conn)  # BD antigua o backup restaurado: migrar y reintentar
+        conn.execute(_SQL_REGISTRO, params)
+    conn.commit()
+
+
 # Lógica de acceso (solo modo normal)
 def procesar(uid_s: str) -> tuple[str, str, str]:
     hoy = datetime.now().strftime("%Y-%m-%d")
     ts  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    meta = _meta_reloj()
     conn = get_db()
     try:
         c = conn.cursor()
@@ -125,24 +187,14 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
         tarjeta = c.fetchone()
 
         if tarjeta is None:
-            c.execute("""
-                INSERT INTO registros_asistencia
-                    (id_estudiante, uid, timestamp, fecha_dia, tipo_evento, mensaje)
-                VALUES (NULL, ?, ?, ?, 'rebote', 'UID no registrado')
-            """, (uid_s, ts, hoy))
-            conn.commit()
+            _registrar(conn, None, uid_s, ts, hoy, "rebote", "UID no registrado", meta)
             return "rebote", "DESCONOCIDO", "UID no registrado"
 
         nombre = ((tarjeta["nombre"] or "") + " " + (tarjeta["apellido_paterno"] or "")).strip() or "Sin nombre"
 
         if not tarjeta["activa"] or tarjeta["estado"] != "activo":
             motivo = "Tarjeta inactiva" if not tarjeta["activa"] else "Estudiante inactivo"
-            c.execute("""
-                INSERT INTO registros_asistencia
-                    (id_estudiante, uid, timestamp, fecha_dia, tipo_evento, mensaje)
-                VALUES (?, ?, ?, ?, 'rebote', ?)
-            """, (tarjeta["id_estudiante"], uid_s, ts, hoy, motivo))
-            conn.commit()
+            _registrar(conn, tarjeta["id_estudiante"], uid_s, ts, hoy, "rebote", motivo, meta)
             return "rebote", nombre, motivo
 
         c.execute("""
@@ -163,12 +215,7 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
         else:
             msg = "Acceso permitido"
 
-        c.execute("""
-            INSERT INTO registros_asistencia
-                (id_estudiante, uid, timestamp, fecha_dia, tipo_evento, mensaje)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (tarjeta["id_estudiante"], uid_s, ts, hoy, tipo, msg))
-        conn.commit()
+        _registrar(conn, tarjeta["id_estudiante"], uid_s, ts, hoy, tipo, msg, meta)
         return tipo, nombre, msg
     finally:
         conn.close()

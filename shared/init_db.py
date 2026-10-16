@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS registros_asistencia (
     timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
     fecha_dia     TEXT NOT NULL,
     tipo_evento   TEXT NOT NULL CHECK(tipo_evento IN ('aceptado','rebote','ya_escaneado','desconocido','entrada')),
-    mensaje       TEXT DEFAULT ''
+    mensaje       TEXT DEFAULT '',
+    boot_id         TEXT,
+    uptime_s        REAL,
+    reloj_confiable INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_reg_fecha    ON registros_asistencia(fecha_dia);
