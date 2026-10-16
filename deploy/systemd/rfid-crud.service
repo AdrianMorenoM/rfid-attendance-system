@@ -1,0 +1,23 @@
+[Unit]
+Description=RFID CRUD Service
+After=network.target
+
+[Service]
+Type=simple
+User=rfid-svc
+WorkingDirectory=/home/admin/rfid-system/crud
+EnvironmentFile=/home/admin/rfid-system/.env
+
+# Agregar nice y threads
+Nice=5
+ExecStart=/home/admin/rfid-system/venv/bin/gunicorn -w 1 --threads 2 -b 127.0.0.1:5001 --timeout 120 --access-logfile /home/admin/rfid-system/logs/access.log --error-logfile /home/admin/rfid-system/logs/error.log app_crud:app
+
+Restart=always
+RestartSec=5
+
+# Proteger SSH
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
