@@ -1,0 +1,9 @@
+[Unit]
+Description=Fija la hora del sistema a peticion del panel (solo si no hay NTP)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rfid-fijar-hora-buzon.sh
+TimeoutStartSec=15
+ProtectHome=true
+PrivateTmp=true

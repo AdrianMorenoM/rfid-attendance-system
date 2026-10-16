@@ -1,0 +1,9 @@
+[Unit]
+Description=Vigila peticiones de fijar hora del panel
+
+[Path]
+PathExists=/run/rfid-shared/fijar_hora.req
+Unit=rfid-fijar-hora.service
+
+[Install]
+WantedBy=multi-user.target

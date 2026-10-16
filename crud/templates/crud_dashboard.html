@@ -1163,6 +1163,10 @@ María,García,,20230002,1,A,"></textarea>
                 <div style="padding:10px 15px;border-bottom:1px solid var(--brd);font-family:var(--body);font-size:12px;color:var(--tx-dim);background:var(--s3)">
                     Estas acciones afectan directamente al equipo. Úsalas solo cuando necesites mantener o reiniciar el sistema.
                 </div>
+                <div id="aviso-reloj" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 15px;border-bottom:1px solid var(--amber-25);background:var(--amber-12);color:var(--amber);font-family:var(--body);font-size:12px">
+                    <span>⚠️ El reloj del equipo no está sincronizado: los registros de asistencia podrían tener hora incorrecta.</span>
+                    <button class="btn btn-sm btn-warning" style="border:1px solid var(--amber-25)" onclick="fijarHora()">Fijar hora</button>
+                </div>
                 <div class="rfid-pb" id="panel-sistema">
                     <div class="empty"><div class="empty-txt">Cargando…</div></div>
                 </div>
@@ -3440,6 +3444,33 @@ María,García,,20230002,1,A,"></textarea>
                 else toastErr(r.error || r.result?.stderr || 'Error');
             } catch (e) { toastErr('Error de red: ' + e.message); }
         }
+
+        async function revisarReloj() {
+            try {
+                const r = await apiFetch('/api/hardware/system/clock-status');
+                const a = document.getElementById('aviso-reloj');
+                if (a) a.style.display = (r.success && !r.confiable) ? 'flex' : 'none';
+            } catch (e) { /* sin red: no molestar */ }
+        }
+
+        async function fijarHora() {
+            const ahora = new Date();
+            const epoch = Math.floor(ahora.getTime() / 1000);
+            const txt = ahora.toLocaleString('es-MX');
+            if (!confirm('La hora de ESTE navegador es:\n\n' + txt + '\n\n¿Es correcta? Se fijará como hora del equipo.')) return;
+            try {
+                const r = await apiFetch('/api/hardware/system/set-time', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ confirm: true, epoch: epoch })
+                });
+                if (r.success) { toastOk('Hora fijada'); revisarReloj(); }
+                else toastErr(r.error || 'No se pudo fijar la hora');
+            } catch (e) { toastErr('Error de red: ' + e.message); }
+        }
+
+        document.addEventListener('DOMContentLoaded', revisarReloj);
+        setInterval(revisarReloj, 60000);
 
         async function apagarSistema() {
             if (!confirm('⚠️ ¿Apagar el equipo? Se perderá la conexión.')) return;
