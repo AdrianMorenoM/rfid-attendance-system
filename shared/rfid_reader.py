@@ -228,6 +228,8 @@ def procesar(uid_s: str) -> tuple[str, str, str]:
 
 # Signal handler
 HB_S = 5
+HB_REINIT = 3    # fallos seguidos (15 s): recrear el lector
+HB_SALIR  = 12   # fallos seguidos (60 s): salir y que systemd lo relance
 _hb_fallos = 0
 
 def _sd_notify(msg: str) -> None:
@@ -305,7 +307,19 @@ def main():  # pragma: no cover
 
     while True:
         try:
+            fallos_antes = _hb_fallos
             ultimo_hb = _heartbeat(reader, ultimo_hb)
+            if _hb_fallos != fallos_antes:   # el heartbeat acaba de correr
+                if _hb_fallos == 0:
+                    log.warning("RC522 recuperado tras %d fallos seguidos", fallos_antes)
+                elif _hb_fallos == HB_REINIT:
+                    log.warning("RC522: %d fallos seguidos, reinicializando", _hb_fallos)
+                    try: reader.spi.close()
+                    except Exception: pass
+                    reader = MFRC522()
+                elif _hb_fallos >= HB_SALIR:
+                    log.critical("RC522 sin respuesta %d veces seguidas: saliendo para que systemd relance", _hb_fallos)
+                    cleanup()
             uid_s = leer_uid(reader)
             if uid_s is None:
                 time.sleep(POLL_S)
