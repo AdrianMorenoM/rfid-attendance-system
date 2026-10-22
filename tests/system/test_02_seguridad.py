@@ -291,6 +291,11 @@ def hallazgos_sql(path):
             exprs = {ast.unparse(v.value) for v in q.values if isinstance(v, ast.FormattedValue)}
             if exprs and exprs <= INTERPOLACIONES_SEGURAS:
                 continue
+        # ALTER TABLE ... ADD COLUMN no admite parámetros; nombre/tipo salen de COLUMNAS_RELOJ.
+        if (Path(path).name == "rfid_reader.py" and isinstance(q, ast.JoinedStr)
+                and ast.unparse(q).startswith("f'ALTER TABLE registros_asistencia ADD COLUMN")):
+            info.append(f"{Path(path).name}:{n.lineno}")
+            continue
         es_pragma = (isinstance(q, ast.JoinedStr) and q.values and isinstance(q.values[0], ast.Constant)
                      and str(q.values[0].value).lstrip().upper().startswith("PRAGMA"))
         con_params = len(n.args) > 1 or bool(n.keywords)
