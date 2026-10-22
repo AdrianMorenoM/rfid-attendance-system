@@ -6,4 +6,4 @@ After=network.target
 Type=oneshot
 User=admin
 WorkingDirectory=/home/admin/rfid-system
-ExecStart=/home/admin/rfid-system/venv/bin/python /home/admin/rfid-system/shared/run_incremental_vacuum.py
+ExecStart=/home/admin/rfid-system/venv/bin/python /home/admin/rfid-system/common/run_incremental_vacuum.py

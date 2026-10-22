@@ -22,7 +22,7 @@ import requests
 
 import syslib
 
-for _p in (syslib.SHARED, syslib.CRUD_DIR, syslib.DASH_DIR, syslib.ROOT):
+for _p in (syslib.SHARED, syslib.ROOT / "reader", syslib.ROOT / "common", syslib.CRUD_DIR, syslib.DASH_DIR, syslib.ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

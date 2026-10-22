@@ -362,13 +362,13 @@ class TestSQLInjection:
         assert not malos, "Errores 5xx con entradas hostiles:\n  " + "\n  ".join(malos)
 
     def test_lint_sql_dinamico_sin_parametros(self):
-        archivos = [ROOT / "crud/app_crud.py", ROOT / "dashboard/app_dashboard.py", ROOT / "shared/rfid_reader.py",
-                    ROOT / "shared/init_db.py", ROOT / "shared/run_incremental_vacuum.py"]
+        archivos = [ROOT / "crud/app_crud.py", ROOT / "dashboard/app_dashboard.py", ROOT / "reader/rfid_reader.py",
+                    ROOT / "common/init_db.py", ROOT / "common/run_incremental_vacuum.py"]
         altos = []
         for f in archivos:
-            if f.exists():
-                a, _ = hallazgos_sql(f)
-                altos += a
+            assert f.exists(), f"Archivo a revisar no existe: {f}"
+            a, _ = hallazgos_sql(f)
+            altos += a
         assert not altos, ("SQL armado con f-string/concatenación y SIN parámetros enlazados "
                            "(revisar que no venga de entrada del usuario): " + ", ".join(altos))
 

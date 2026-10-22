@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=rfid-svc
-WorkingDirectory=/home/admin/rfid-system/shared
-ExecStart=/home/admin/rfid-system/venv/bin/python3 /home/admin/rfid-system/shared/rfid_reader.py
+WorkingDirectory=/home/admin/rfid-system/reader
+ExecStart=/home/admin/rfid-system/venv/bin/python3 /home/admin/rfid-system/reader/rfid_reader.py
 Restart=always
 RestartSec=5
 

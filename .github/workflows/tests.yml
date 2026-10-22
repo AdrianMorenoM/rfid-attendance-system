@@ -37,6 +37,8 @@ jobs:
             --cov=crud \
             --cov=dashboard \
             --cov=shared \
+            --cov=reader \
+            --cov=common \
             --cov-report=term-missing \
             --cov-report=html \
             --cov-report=xml \

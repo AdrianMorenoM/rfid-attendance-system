@@ -13,7 +13,7 @@ import sqlite3, os, sys, argparse, logging
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB       = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "rfid.db")
+DB       = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "..", "shared", "rfid.db")
 LOG_FILE = os.path.join(BASE_DIR, "incremental_vacuum.log")
 
 logging.basicConfig(

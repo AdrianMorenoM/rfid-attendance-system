@@ -28,7 +28,7 @@ sys.modules.setdefault('mfrc522', MagicMock())
 sys.modules.setdefault('RPi',      MagicMock())
 sys.modules.setdefault('RPi.GPIO', MagicMock())
 
-import shared.rfid_reader as reader
+import reader.rfid_reader as reader
 
 
 # ===========================================================================

@@ -10,7 +10,7 @@ _SHARED = os.path.join(_ROOT, "shared")
 _CRUD   = os.path.join(_ROOT, "crud")
 _DASH   = os.path.join(_ROOT, "dashboard")
 
-for p in (_SHARED, _CRUD, _DASH, _ROOT):
+for p in (_SHARED, os.path.join(_ROOT, "reader"), os.path.join(_ROOT, "common"), _CRUD, _DASH, _ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
