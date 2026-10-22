@@ -148,7 +148,7 @@ class TestAutenticacion:
         assert len(pwd) >= 12, "ADMIN_PASSWORD tiene menos de 12 caracteres"
         assert pwd.lower() not in debiles and pwd.lower() != user.lower()
 
-    @pytest.mark.parametrize("ruta", [".env", "shared/rfid.db", "shared/backups"])
+    @pytest.mark.parametrize("ruta", [".env", "data/rfid.db", "data/backups"])
     def test_archivos_sensibles_sin_permisos_para_otros(self, ruta):
         p = ROOT / ruta
         if not p.exists():
@@ -374,8 +374,8 @@ class TestSQLInjection:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-TRAVERSAL = ["../app_dashboard.py", "../../shared/rfid.db", "..%2f..%2fshared%2frfid.db",
-             "%2e%2e/%2e%2e/shared/rfid.db", "....//....//etc/passwd", "/etc/passwd",
+TRAVERSAL = ["../app_dashboard.py", "../../data/rfid.db", "..%2f..%2fdata%2frfid.db",
+             "%2e%2e/%2e%2e/data/rfid.db", "....//....//etc/passwd", "/etc/passwd",
              "..\\..\\shared\\rfid.db", "%252e%252e/%252e%252e/etc/passwd", "foto.jpg%00.png",
              "../../.env", "../../../../etc/passwd", "../secreto.txt", "..%2fsecreto.txt",
              "%2e%2e/secreto.txt"]

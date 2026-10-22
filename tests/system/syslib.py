@@ -19,8 +19,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SHARED, CRUD_DIR, DASH_DIR = ROOT / "shared", ROOT / "crud", ROOT / "dashboard"
 REPORTS = HERE / "reports"
-LIVE_DB = SHARED / "rfid.db"
-LIVE_BACKUPS = SHARED / "backups"
+LIVE_DB = ROOT / "data" / "rfid.db"
+LIVE_BACKUPS = ROOT / "data" / "backups"
 ENV_FILE = ROOT / ".env"
 TEST_PWD = "test-admin-password"
 

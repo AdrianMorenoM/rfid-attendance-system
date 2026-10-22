@@ -33,11 +33,11 @@ RFID_CERT_MIN_DAYS=14 · RFID_WAL_MAX_MB=32 · COV_MIN_LINES=75 · COV_MIN_BRANC
 
 ## Garantías de seguridad de la suite
 - Nunca llama a reboot/shutdown ni a los endpoints de servicios/red/admin-scan contra el sistema real.
-- Pruebas en proceso: `subprocess`/`os.system` bloqueados y BD temporal (nunca `shared/rfid.db`).
+- Pruebas en proceso: `subprocess`/`os.system` bloqueados y BD temporal (nunca `data/rfid.db`).
 - En vivo: máximo 2 logins fallidos (el bloqueo es a 5/min por IP y comparte 127.0.0.1 con cron).
 - Backups en vivo: se crea un backup y se borra ese mismo. NUNCA se restaura sobre la BD real.
 
 ## aplicar_parches.py (uso único)
-Parchea `crud/app_crud.py` (restore) y `shared/rfid_reader.py` (contador de reintentos). Hace copia de los
+Parchea `crud/app_crud.py` (restore) y `reader/rfid_reader.py` (contador de reintentos). Hace copia de los
 originales en `~/parches-bak/`, se niega a modificar si el código no coincide exactamente y no corre dos veces.
     python3 tests/system/aplicar_parches.py

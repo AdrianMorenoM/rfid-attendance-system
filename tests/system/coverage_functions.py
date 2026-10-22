@@ -14,7 +14,7 @@ import coverage
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 REP = HERE / "reports"
-FUENTES = ["crud", "dashboard", "shared"]
+FUENTES = ["crud", "dashboard", "reader", "common"]
 EXCLUIR = {"tests", "venv", ".venv", "__pycache__", "backups"}
 
 

@@ -5,15 +5,15 @@ Ejecuta PRAGMA incremental_vacuum sobre rfid.db.
 Pensado para ser llamado periódicamente por un systemd timer (o cron).
 
 Uso manual:
-    ./venv/bin/python shared/run_incremental_vacuum.py
-    ./venv/bin/python shared/run_incremental_vacuum.py --pages 500   # limitar páginas por corrida
+    ./venv/bin/python common/run_incremental_vacuum.py
+    ./venv/bin/python common/run_incremental_vacuum.py --pages 500   # limitar páginas por corrida
 """
 
 import sqlite3, os, sys, argparse, logging
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB       = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "..", "shared", "rfid.db")
+DB       = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "..", "data", "rfid.db")
 LOG_FILE = os.path.join(BASE_DIR, "incremental_vacuum.log")
 
 logging.basicConfig(

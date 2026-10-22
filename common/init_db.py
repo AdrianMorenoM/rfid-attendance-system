@@ -4,7 +4,7 @@
 
 import sqlite3, os
 
-DB = os.environ.get("RFID_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared", "rfid.db")
+DB = os.environ.get("RFID_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "rfid.db")
 
 SQL = """
 PRAGMA journal_mode=WAL;

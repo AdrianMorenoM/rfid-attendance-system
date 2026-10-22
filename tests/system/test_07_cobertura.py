@@ -35,7 +35,7 @@ class TestEliminarFotoDisco:
         fuera = tmp_path / "rfid.db"
         fuera.write_bytes(b"datos")
         monkeypatch.setattr(m, "FOTOS", str(fotos))
-        for url in ("../rfid.db", "/static/fotos/../../rfid.db", "../../shared/rfid.db"):
+        for url in ("../rfid.db", "/static/fotos/../../rfid.db", "../../data/rfid.db"):
             m._eliminar_foto_disco(url)
         assert fuera.exists(), "un foto_url con traversal borró un archivo fuera de FOTOS"
 

@@ -14,7 +14,7 @@ import os, sys, time, sqlite3
 from datetime import datetime, timedelta
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DB = os.environ.get("RFID_DB") or os.path.join(BASE, "..", "shared", "rfid.db")
+DB = os.environ.get("RFID_DB") or os.path.join(BASE, "..", "data", "rfid.db")
 BOOT_ID_FILE = "/proc/sys/kernel/random/boot_id"
 MARCAS_RELOJ_OK = tuple(os.environ.get(
     "RFID_MARCAS_RELOJ",

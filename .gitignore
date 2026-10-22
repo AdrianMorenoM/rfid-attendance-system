@@ -4,7 +4,6 @@ __pycache__/
 *.db
 *.log
 .env
-shared/backups/
 crud/static/fotos/*
 *.log.*
 *.bak
@@ -25,3 +24,6 @@ htmlcov/
 tests/system/reports/
 __pycache__/
 *.bak*
+
+# Datos de producción
+data/
