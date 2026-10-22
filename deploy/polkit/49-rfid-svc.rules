@@ -1,0 +1,23 @@
+polkit.addRule(function(action, subject) {
+    if (subject.user !== "rfid-svc") return polkit.Result.NOT_HANDLED;
+
+    var unidades = ["rfid-crud.service", "rfid-dashboard.service",
+                    "rfid-reader.service", "NetworkManager.service"];
+    var verbos = ["start", "stop", "restart"];
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        unidades.indexOf(action.lookup("unit")) !== -1 &&
+        verbos.indexOf(action.lookup("verb")) !== -1) {
+        return polkit.Result.YES;
+    }
+
+    var energia = ["org.freedesktop.login1.reboot",
+                   "org.freedesktop.login1.reboot-multiple-sessions",
+                   "org.freedesktop.login1.power-off",
+                   "org.freedesktop.login1.power-off-multiple-sessions"];
+    if (energia.indexOf(action.id) !== -1) return polkit.Result.YES;
+
+    // Panel Wi-Fi (nmcli scan/connect/disconnect)
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0) return polkit.Result.YES;
+
+    return polkit.Result.NOT_HANDLED;
+});

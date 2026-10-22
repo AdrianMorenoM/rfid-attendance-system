@@ -1,0 +1,16 @@
+polkit.addRule(function(action, subject) {
+    if (subject.user != "admin") return;
+
+    var allowed = [
+        "org.freedesktop.systemd1.manage-units",
+        "org.freedesktop.systemd1.manage-unit-files",
+        "org.freedesktop.NetworkManager.settings.modify.system",
+        "org.freedesktop.NetworkManager.network-control",
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.power-off",
+    ];
+
+    if (allowed.indexOf(action.id) !== -1) {
+        return polkit.Result.YES;
+    }
+});
