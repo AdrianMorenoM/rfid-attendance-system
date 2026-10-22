@@ -1,0 +1,1 @@
+admin ALL=(ALL) NOPASSWD: /bin/systemctl restart rfid-reader.service
