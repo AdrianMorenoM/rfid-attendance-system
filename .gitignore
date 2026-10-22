@@ -22,6 +22,6 @@ htmlcov/
 *.db-shm
 *.crt
 *.key
-tests_system/reports/
+tests/system/reports/
 __pycache__/
 *.bak*

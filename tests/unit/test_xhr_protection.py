@@ -7,7 +7,7 @@ este test lo detecta en CI antes de que llegue a producción.
 
 Corre con:
     cd ~/rfid-system
-    ./venv/bin/python -m pytest shared/tests/test_xhr_protection.py -v
+    ./venv/bin/python -m pytest tests/unit/test_xhr_protection.py -v
 """
 
 import base64

@@ -3,11 +3,11 @@ branch = True
 source = crud, dashboard, shared
 omit =
     */tests/*
-    */tests_system/*
+    */tests/system/*
     */venv/*
     */.venv/*
     */__pycache__/*
-data_file = tests_system/reports/.coverage
+data_file = tests/system/reports/.coverage
 
 [report]
 exclude_lines =

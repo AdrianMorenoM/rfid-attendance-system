@@ -1,4 +1,4 @@
-"""conftest.py — fixtures de la suite de SISTEMA (tests_system/).
+"""conftest.py — fixtures de la suite de SISTEMA (tests/system/).
 
 Dos mundos:
   · En proceso: apps Flask + lector importados con una BD temporal y subprocess/os.system

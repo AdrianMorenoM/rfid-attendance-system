@@ -14,7 +14,7 @@ REP = HERE / "reports"
 SECCIONES = OrderedDict([
     ("01", "01 · RFID end-to-end"), ("02", "02 · Seguridad"), ("03", "03 · Resiliencia"),
     ("04", "04 · Rendimiento"), ("05", "05 · Backups"), ("06", "06 · Integraciones"),
-    ("ex", "Suite existente (shared/tests)"),
+    ("ex", "Suite existente (tests/unit)"),
 ])
 UMBRAL = {"lineas": float(os.environ.get("COV_MIN_LINES", 75)),
           "ramas": float(os.environ.get("COV_MIN_BRANCHES", 60)),

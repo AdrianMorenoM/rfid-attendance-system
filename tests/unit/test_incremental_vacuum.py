@@ -9,7 +9,7 @@ Cubre:
 
 Ejecutar:
     cd ~/rfid-system
-    ~/rfid-system/venv/bin/pytest shared/tests/test_incremental_vacuum.py -v
+    ~/rfid-system/venv/bin/pytest tests/unit/test_incremental_vacuum.py -v
 """
 
 import os

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_tests.sh — ejecuta la suite completa de pruebas RFID
-# Uso: bash shared/tests/run_tests.sh [--smoke] [--cov]
+# Uso: bash tests/unit/run_tests.sh [--smoke] [--cov]
 
 set -euo pipefail
 
@@ -29,32 +29,32 @@ echo "========================================"
 
 if [[ $COV -eq 1 ]]; then
     pip install pytest-cov -q
-    ARGS="$ARGS --cov=. --cov-report=term-missing --cov-report=html:shared/tests/htmlcov"
+    ARGS="$ARGS --cov=. --cov-report=term-missing --cov-report=html:tests/unit/htmlcov"
 fi
 
 if [[ $SMOKE -eq 0 ]]; then
     echo "[!] Omitiendo smoke tests (usa --smoke para incluirlos)"
-    ARGS="$ARGS --ignore=shared/tests/test_smoke.py"
+    ARGS="$ARGS --ignore=tests/unit/test_smoke.py"
 fi
 
 echo ""
 echo "[1/3] Pruebas unitarias (reader, db)..."
-python -m pytest shared/tests/test_reader.py $ARGS || true
+python -m pytest tests/unit/test_reader.py $ARGS || true
 
 echo ""
 echo "[2/3] Pruebas de integración Flask..."
-python -m pytest shared/tests/test_crud_api.py shared/tests/test_dashboard_y_db.py $ARGS || true
+python -m pytest tests/unit/test_crud_api.py tests/unit/test_dashboard_y_db.py $ARGS || true
 
 if [[ $SMOKE -eq 1 ]]; then
     echo ""
     echo "[3/3] Smoke tests (servicios reales)..."
-    python -m pytest shared/tests/test_smoke.py $ARGS || true
+    python -m pytest tests/unit/test_smoke.py $ARGS || true
 fi
 
 echo ""
 echo "========================================"
 echo " Listo. Revisa la salida anterior."
 if [[ $COV -eq 1 ]]; then
-    echo " Cobertura HTML: shared/tests/htmlcov/index.html"
+    echo " Cobertura HTML: tests/unit/htmlcov/index.html"
 fi
 echo "========================================"

@@ -31,8 +31,8 @@ jobs:
           ALLOWED_SUBNET: disabled
           ALLOW_HTTP_MIGRATIONS: "true"
         run: |
-          python -m pytest shared/tests \
-            --ignore=shared/tests/test_smoke.py \
+          python -m pytest tests/unit \
+            --ignore=tests/unit/test_smoke.py \
             --tb=short \
             --cov=crud \
             --cov=dashboard \

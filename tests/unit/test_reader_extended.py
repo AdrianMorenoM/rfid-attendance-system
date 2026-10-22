@@ -9,7 +9,7 @@ Cubre las líneas 163–224:
   - _escribir_estado(), _modo_admin_activo(), _notificar_admin_scan()
 
 Corre con:
-    ./venv/bin/python -m pytest shared/tests/test_reader_extended.py -v
+    ./venv/bin/python -m pytest tests/unit/test_reader_extended.py -v
 """
 
 import os

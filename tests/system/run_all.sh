@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # run_all.sh — ejecuta la suite de sistema y genera reports/reporte.html
 #
-# Uso:  bash tests_system/run_all.sh [opciones] [argumentos extra de pytest]
+# Uso:  bash tests/system/run_all.sh [opciones] [argumentos extra de pytest]
 #   --no-live       omite las pruebas contra los servicios reales
 #   --destructive   permite reinicios, kill -9 y bloqueos de BD en el sistema real
 #   --hardware      permite la prueba con el lector RC522 real (con --destructive)
 #   --cov           mide cobertura (líneas, ramas y funciones) incluyendo la suite existente
-#   --existing      ejecuta también la suite existente (shared/tests, sin smoke)
+#   --existing      ejecuta también la suite existente (tests/unit, sin smoke)
 # Ejemplos:  run_all.sh --no-live            run_all.sh --cov            run_all.sh -k seguridad
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(dirname "$HERE")"
+ROOT="$(dirname "$(dirname "$HERE")")"
 cd "$ROOT"
 [ -f venv/bin/activate ] && source venv/bin/activate
 REP="$HERE/reports"
@@ -36,12 +36,12 @@ if [ $COV -eq 1 ]; then
 fi
 
 if [ $EXISTING -eq 1 ] || [ $COV -eq 1 ]; then
-  echo "== Suite existente (shared/tests) =="
-  python -m pytest -c shared/tests/pytest.ini shared/tests --ignore=shared/tests/test_smoke.py \
+  echo "== Suite existente (tests/unit) =="
+  python -m pytest -c tests/unit/pytest.ini tests/unit --ignore=tests/unit/test_smoke.py \
     -p no:cacheprovider -q --junitxml="$REP/junit_existente.xml" "${COV_FIRST[@]}" || RC=$?
 fi
 
-echo "== Suite de sistema (tests_system) =="
+echo "== Suite de sistema (tests/system) =="
 python -m pytest -c "$HERE/pytest.ini" "$HERE" -p no:cacheprovider \
   --junitxml="$REP/junit_sistema.xml" "${COV_LAST[@]}" "${EXTRA[@]}" || RC=$?
 

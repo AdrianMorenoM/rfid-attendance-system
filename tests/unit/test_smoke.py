@@ -10,10 +10,10 @@ Si los servicios están caídos, todos los tests se marcan como SKIP.
 Ejecutar solo los smoke tests:
     cd ~/rfid-system
     source venv/bin/activate
-    pytest shared/tests/test_smoke.py -v
+    pytest tests/unit/test_smoke.py -v
 
 Ejecutar toda la suite incluyendo smoke:
-    pytest shared/tests/ -v --tb=short
+    pytest tests/unit/ -v --tb=short
 """
 import os, json, base64, pytest
 from pathlib import Path

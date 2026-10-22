@@ -5,8 +5,8 @@ import os, sys, sqlite3, tempfile, pytest, base64
 
 # ── Ajustar el path para importar los módulos del proyecto ──────────────────
 _HERE   = os.path.dirname(os.path.abspath(__file__))
-_SHARED = os.path.dirname(_HERE)
-_ROOT   = os.path.dirname(_SHARED)
+_ROOT   = os.path.dirname(os.path.dirname(_HERE))   # tests/unit -> raíz
+_SHARED = os.path.join(_ROOT, "shared")
 _CRUD   = os.path.join(_ROOT, "crud")
 _DASH   = os.path.join(_ROOT, "dashboard")
 

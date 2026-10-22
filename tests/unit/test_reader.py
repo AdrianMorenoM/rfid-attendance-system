@@ -11,7 +11,7 @@ Cubre:
 Ejecutar:
     cd ~/rfid-system
     source venv/bin/activate
-    pytest shared/tests/test_reader.py -v
+    pytest tests/unit/test_reader.py -v
 """
 import os, sys, sqlite3, time, importlib, pytest
 from unittest.mock import patch, MagicMock

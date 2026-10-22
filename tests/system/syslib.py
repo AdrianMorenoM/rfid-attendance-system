@@ -16,7 +16,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = HERE.parents[1]
 SHARED, CRUD_DIR, DASH_DIR = ROOT / "shared", ROOT / "crud", ROOT / "dashboard"
 REPORTS = HERE / "reports"
 LIVE_DB = SHARED / "rfid.db"

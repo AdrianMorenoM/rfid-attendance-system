@@ -8,7 +8,7 @@ Cubre las líneas 54–86 (funciones de shell/SSH) y las clases
 ServiceManager y DatabaseManager.
 
 Corre con:
-    ./venv/bin/python -m pytest shared/tests/test_software_admin.py -v
+    ./venv/bin/python -m pytest tests/unit/test_software_admin.py -v
 """
 
 import os

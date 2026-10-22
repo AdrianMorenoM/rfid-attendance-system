@@ -10,7 +10,7 @@ Cubre:
 Ejecutar:
     cd ~/rfid-system
     source venv/bin/activate
-    pytest shared/tests/test_dashboard_y_db.py -v
+    pytest tests/unit/test_dashboard_y_db.py -v
 """
 import os, sys, json, sqlite3, importlib, importlib.util, types, pytest
 from unittest.mock import patch

@@ -7,7 +7,7 @@ Cubre:
 
 Ejecutar:
     cd ~/rfid-system
-    ~/rfid-system/venv/bin/pytest shared/tests/test_init_db.py -v
+    ~/rfid-system/venv/bin/pytest tests/unit/test_init_db.py -v
 """
 
 import os

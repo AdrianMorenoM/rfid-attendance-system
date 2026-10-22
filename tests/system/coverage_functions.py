@@ -12,10 +12,10 @@ from pathlib import Path
 import coverage
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = HERE.parents[1]
 REP = HERE / "reports"
 FUENTES = ["crud", "dashboard", "shared"]
-EXCLUIR = {"tests", "venv", ".venv", "__pycache__", "backups", "tests_system"}
+EXCLUIR = {"tests", "venv", ".venv", "__pycache__", "backups"}
 
 
 def archivos():
