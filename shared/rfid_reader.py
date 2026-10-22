@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover
 
 # Configuración
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-DB         = os.path.join(BASE_DIR, "rfid.db")
+DB         = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "rfid.db")
 DEBOUNCE_S = 2
 SPI_SPEED  = 1_000_000
 POLL_S     = 0.15

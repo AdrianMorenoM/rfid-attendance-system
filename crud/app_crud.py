@@ -220,8 +220,8 @@ def require_xhr_header(f):
 
 # ===== Rutas y directorios =====
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-DB         = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
-BACKUP_DIR = os.path.join(BASE_DIR, "..", "shared", "backups")
+DB         = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "..", "shared", "rfid.db")
+BACKUP_DIR = os.environ.get("RFID_BACKUP_DIR") or os.path.join(BASE_DIR, "..", "shared", "backups")
 FOTOS      = os.path.join(BASE_DIR, "static", "fotos")
 os.makedirs(FOTOS,      exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)

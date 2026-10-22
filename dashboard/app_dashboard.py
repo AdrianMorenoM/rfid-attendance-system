@@ -19,7 +19,7 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-DB        = os.path.join(BASE_DIR, "..", "shared", "rfid.db")
+DB        = os.environ.get("RFID_DB") or os.path.join(BASE_DIR, "..", "shared", "rfid.db")
 FOTOS_DIR = os.path.join(BASE_DIR, "..", "crud", "static", "fotos")
 
 # ===== Rutas =====
