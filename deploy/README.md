@@ -22,3 +22,12 @@ echo 'admin ALL=(ALL) NOPASSWD: /bin/systemctl restart rfid-reader.service' | su
 sudo chmod 0440 /etc/sudoers.d/rfid-health
 ```
 - El watchdog de red se instala en /usr/local/sbin con: sudo install -o root -g root -m 755 scripts/rfid-network-watchdog.sh /usr/local/sbin/
+
+## Archivos de sistema (instalar en un equipo nuevo)
+sudo install -o root -g root -m 644 deploy/system/rfid-shared.conf /etc/tmpfiles.d/
+sudo install -o root -g root -m 755 deploy/system/rfid-drop-caches.sh /usr/local/bin/
+sudo install -o root -g root -m 644 deploy/systemd/rfid-drop-caches.service /etc/systemd/system/
+sudo install -o root -g root -m 644 deploy/polkit/*.rules /etc/polkit-1/rules.d/
+sudo install -o root -g root -m 440 deploy/system/rfid-health /etc/sudoers.d/
+# deploy/system/rfid-svc es heredado (el CRUD usa polkit); no hace falta instalarlo.
+# nginx: deploy/nginx/rfid.conf va en /etc/nginx/sites-enabled/ y los snippets en /etc/nginx/snippets/.
