@@ -36,7 +36,6 @@ jobs:
             --tb=short \
             --cov=crud \
             --cov=dashboard \
-            --cov=shared \
             --cov=reader \
             --cov=common \
             --cov-report=term-missing \
