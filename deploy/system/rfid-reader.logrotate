@@ -1,0 +1,10 @@
+/home/admin/rfid-system/reader/reader.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su rfid-svc rfid-svc
+}

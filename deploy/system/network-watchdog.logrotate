@@ -1,0 +1,10 @@
+/home/admin/rfid-system/shared/network_watchdog.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su admin admin
+}

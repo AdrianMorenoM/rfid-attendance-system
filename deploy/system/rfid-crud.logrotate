@@ -1,0 +1,10 @@
+/home/admin/rfid-system/logs/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su admin admin
+}
