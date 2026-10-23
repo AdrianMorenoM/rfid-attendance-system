@@ -724,3 +724,59 @@ sudo systemctl restart rfid-crud
 Adrián Moreno Méndez — Asesor: José Martín Oropeza Méndez
 
 </div>
+
+---
+
+## 14. Seguridad y operación
+
+### 14.1 Privilegios
+- Los servicios corren como `rfid-svc` (sin root) con `NoNewPrivileges` y `PrivateTmp`.
+- Un único archivo polkit (`deploy/polkit/50-rfid-svc.rules`) permite a `rfid-svc` controlar solo sus servicios, reiniciar/apagar y operar NetworkManager (escaneo y conexión).
+- `rfid-svc` usa sudo únicamente para `rfid-systemctl-wrapper.sh`, que valida acción y servicio contra una lista blanca.
+- No existe regla polkit amplia para `admin`: crear unidades requiere contraseña.
+
+### 14.2 Reloj
+La Pi no tiene RTC. Se usa `fake-hwclock` (guarda la hora cada hora y al apagar) y NTP cuando hay red.
+- Reloj sincronizado: lecturas con `reloj_confiable = 1`.
+- Sin NTP: fijar la hora desde el panel. El CRUD deja `fijar_hora.req` en `/run/rfid-shared/`; una unidad de root la valida y escribe la respuesta y `reloj_manual_ok` en `/run/rfid-reloj/` (solo root escribe).
+- `/run` es tmpfs: la marca manual se pierde en cada arranque. Tras un apagón sin internet hay que volver a fijar la hora.
+
+### 14.3 Acceso
+- LAN: `https://<IP>:8443` (solo redes privadas).
+- Tailscale: puerto 443 y SSH.
+- ufw y nginx aplican doble filtro; el 443 por LAN está denegado.
+
+### 14.4 Recuperación
+1. Servicios caídos: `sudo systemctl restart rfid-reader rfid-crud rfid-dashboard`.
+2. Hora incorrecta tras un apagón sin internet: fijarla desde el panel.
+3. Restaurar la base: desde el panel (endpoint `/api/software/database/restore`), eligiendo un respaldo de `data/backups/`. Crea un respaldo de seguridad previo. Los respaldos se generan a diario a las 19:00.
+4. Verificar: `systemctl is-active rfid-reader rfid-crud rfid-dashboard nginx`.
+
+
+---
+
+## 14. Seguridad y operación
+
+### 14.1 Privilegios
+- Los servicios corren como `rfid-svc` (sin root) con `NoNewPrivileges` y `PrivateTmp`.
+- Un único archivo polkit (`deploy/polkit/50-rfid-svc.rules`) permite a `rfid-svc` controlar solo sus servicios, reiniciar/apagar y operar NetworkManager (escaneo y conexión).
+- `rfid-svc` usa sudo únicamente para `rfid-systemctl-wrapper.sh`, que valida acción y servicio contra una lista blanca.
+- No existe regla polkit amplia para `admin`: crear unidades requiere contraseña.
+
+### 14.2 Reloj
+La Pi no tiene RTC. Se usa `fake-hwclock` (guarda la hora cada hora y al apagar) y NTP cuando hay red.
+- Reloj sincronizado: lecturas con `reloj_confiable = 1`.
+- Sin NTP: fijar la hora desde el panel. El CRUD deja `fijar_hora.req` en `/run/rfid-shared/`; una unidad de root la valida y escribe la respuesta y `reloj_manual_ok` en `/run/rfid-reloj/` (solo root escribe).
+- `/run` es tmpfs: la marca manual se pierde en cada arranque. Tras un apagón sin internet hay que volver a fijar la hora.
+
+### 14.3 Acceso
+- LAN: `https://<IP>:8443` (solo redes privadas).
+- Tailscale: puerto 443 y SSH.
+- ufw y nginx aplican doble filtro; el 443 por LAN está denegado.
+
+### 14.4 Recuperación
+1. Servicios caídos: `sudo systemctl restart rfid-reader rfid-crud rfid-dashboard`.
+2. Hora incorrecta tras un apagón sin internet: fijarla desde el panel.
+3. Restaurar la base: desde el panel (endpoint `/api/software/database/restore`), eligiendo un respaldo de `data/backups/`. Crea un respaldo de seguridad previo. Los respaldos se generan a diario a las 19:00.
+4. Verificar: `systemctl is-active rfid-reader rfid-crud rfid-dashboard nginx`.
+
