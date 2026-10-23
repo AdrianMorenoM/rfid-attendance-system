@@ -1,0 +1,9 @@
+/home/admin/rfid-system/common/incremental_vacuum.log {
+    monthly
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su admin admin
+}
