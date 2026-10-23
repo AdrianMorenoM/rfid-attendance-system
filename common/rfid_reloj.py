@@ -19,7 +19,7 @@ BOOT_ID_FILE = "/proc/sys/kernel/random/boot_id"
 MARCAS_RELOJ_OK = tuple(os.environ.get(
     "RFID_MARCAS_RELOJ",
     "/run/systemd/timesync/synchronized:"
-    "/run/rfid-shared/reloj_manual_ok",
+    "/run/rfid-reloj/reloj_manual_ok",
 ).split(":"))
 FMT = "%Y-%m-%d %H:%M:%S"
 COLUMNAS = (("boot_id", "TEXT"), ("uptime_s", "REAL"),

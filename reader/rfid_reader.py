@@ -113,7 +113,7 @@ BOOT_ID_FILE = "/proc/sys/kernel/random/boot_id"
 MARCAS_RELOJ_OK = tuple(os.environ.get(
     "RFID_MARCAS_RELOJ",
     "/run/systemd/timesync/synchronized:"  # lo crea systemd-timesyncd al sincronizar
-    "/run/rfid-shared/reloj_manual_ok",    # lo creará el panel al fijar la hora a mano
+    "/run/rfid-reloj/reloj_manual_ok",    # lo creará el panel al fijar la hora a mano
 ).split(":"))
 COLUMNAS_RELOJ = (("boot_id", "TEXT"), ("uptime_s", "REAL"), ("reloj_confiable", "INTEGER"))
 _boot_id_cache = None

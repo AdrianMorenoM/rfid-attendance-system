@@ -9,7 +9,7 @@ set -euo pipefail
 MIN_EPOCH=1767225600     # 2026-01-01 00:00 UTC
 MAX_EPOCH=2082758400     # 2036-01-01 00:00 UTC
 SYNC_MARCA="/run/systemd/timesync/synchronized"
-MANUAL_MARCA="/run/rfid-shared/reloj_manual_ok"
+MANUAL_MARCA="/run/rfid-reloj/reloj_manual_ok"
 
 MODO="aplicar"
 if [ "${1:-}" = "--validar" ]; then
