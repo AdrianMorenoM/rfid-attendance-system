@@ -1764,17 +1764,28 @@ def get_tarjetas():
     conn   = get_db()
     limit  = min(request.args.get('limit', 50, type=int), 200)
     offset = max(request.args.get('offset', 0, type=int), 0)
+    semestre    = request.args.get('semestre', '').strip()
+    grupo       = request.args.get('grupo', '').strip().upper()
+    sin_asignar = request.args.get('sin_asignar') == '1'
+    where  = "(e.id IS NULL OR e.carrera = ?)"
+    params: list = [CARRERA]
+    if semestre:
+        where += " AND e.semestre = ?"; params.append(semestre)
+    if grupo:
+        where += " AND UPPER(COALESCE(e.grupo,'')) = ?"; params.append(grupo)
+    if sin_asignar:
+        where += " AND t.id_estudiante IS NULL"
     try:
-        total = conn.execute("""
+        total = conn.execute(f"""
             SELECT COUNT(*) AS t
             FROM tarjetas t LEFT JOIN estudiantes e ON t.id_estudiante=e.id
-            WHERE e.id IS NULL OR e.carrera=?
-        """, (CARRERA,)).fetchone()['t']
-        rows = conn.execute("""
+            WHERE {where}
+        """, params).fetchone()['t']
+        rows = conn.execute(f"""
             SELECT t.*, e.nombre, e.apellido_paterno, e.matricula, e.semestre, e.grupo, e.estado AS est_estado
             FROM tarjetas t LEFT JOIN estudiantes e ON t.id_estudiante=e.id
-            WHERE e.id IS NULL OR e.carrera=? ORDER BY t.asignada_en DESC LIMIT ? OFFSET ?
-        """, (CARRERA, limit, offset)).fetchall()
+            WHERE {where} ORDER BY t.asignada_en DESC, t.id DESC LIMIT ? OFFSET ?
+        """, params + [limit, offset]).fetchall()
         tarjetas = []
         for r in rows:
             t = dict(r)
@@ -1799,6 +1810,19 @@ def crear_tarjeta():
     finally:
         conn.close()
     return jsonify({'success': True, 'id': new_id, 'mensaje': 'Tarjeta asignada'})
+
+@app.route('/api/tarjetas/<int:tarj_id>', methods=['GET'])
+@api
+def get_tarjeta(tarj_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM tarjetas WHERE id=?", (tarj_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return jsonify({'success': False, 'error': 'Tarjeta no encontrada'}), 404
+    return jsonify({'success': True, 'tarjeta': dict(row)})
+
 
 @app.route('/api/tarjetas/<int:tarj_id>', methods=['PUT'])
 @require_xhr_header
