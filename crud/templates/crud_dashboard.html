@@ -2500,41 +2500,34 @@ María,García,,20230002,1,A,"></textarea>
         // ---------- Tarjetas ----------
         async function cargarTarjetas(page = tarjPagina) {
             tarjPagina = page;
-            const limit = tarjSoloSinAsignar ? 200 : TARJ_POR_PAGINA;
-            const offset = tarjSoloSinAsignar ? 0 : (page - 1) * TARJ_POR_PAGINA;
-            const qs = new URLSearchParams({ limit, offset });
+            const qs = new URLSearchParams({ limit: TARJ_POR_PAGINA, offset: (page - 1) * TARJ_POR_PAGINA });
+            const fSem = document.getElementById('tarj-semestre').value;
+            const fGrp = document.getElementById('tarj-grupo').value.trim().toUpperCase();
+            if (fSem) qs.append('semestre', fSem);
+            if (fGrp) qs.append('grupo', fGrp);
+            if (tarjSoloSinAsignar) qs.append('sin_asignar', '1');
             const tb = document.getElementById('tbody-tarj');
             tb.innerHTML = '<tr class="skel-row"><td colspan="9"><div class="skel" style="height:26px"></div></td></tr>';
             try {
-                const [tData, eData] = await Promise.all([apiFetch('/api/tarjetas?' + qs), apiFetch('/api/estudiantes')]);
+                const tData = await apiFetch('/api/tarjetas?' + qs);
                 if (!tData.success) {
                     renderTable({ bodyId: 'tbody-tarj', columns: Array(9), data: [], emptyMsg: 'Error' });
                     return;
                 }
-                let tarjetas = tData.tarjetas;
-                if (eData.success) {
-                    const estMap = new Map(eData.estudiantes.map(e => [e.id, e]));
-                    tarjetas = tarjetas.map(t => ({ ...t, _est: estMap.get(t.id_estudiante) || {} }));
-                }
-                const fSem = document.getElementById('tarj-semestre').value;
-                const fGrp = document.getElementById('tarj-grupo').value.trim().toUpperCase();
-                if (fSem) tarjetas = tarjetas.filter(t => String(t._est.semestre) === fSem);
-                if (fGrp) tarjetas = tarjetas.filter(t => (t._est.grupo || '').toUpperCase() === fGrp);
-                if (tarjSoloSinAsignar) tarjetas = tarjetas.filter(t => !t.id_estudiante);
+                const tarjetas = tData.tarjetas;
                 renderTable({
                     bodyId: 'tbody-tarj',
                     columns: Array(9),
                     data: tarjetas,
                     emptyMsg: tarjSoloSinAsignar ? 'No hay UIDs sin asignar' : 'Sin tarjetas',
                     rowRenderer: t => {
-                        const est = t._est;
                         return `<tr>
                                     <td><input type="checkbox" class="chk-tarj" value="${t.id}"></td>
                                     <td class="td-mono" style="color:var(--sky)">${esc(t.uid)}</td>
                                     <td>${t.estudiante_nombre?esc(t.estudiante_nombre):`<span style="color:var(--crimson)">Sin asignar</span>`}</td>
                                     <td class="td-mono">${esc(t.matricula||'—')}</td>
-                                    <td>${esc(est.semestre||'—')}</td>
-                                    <td>${esc(est.grupo||'—')}</td>
+                                    <td>${esc(t.semestre||'—')}</td>
+                                    <td>${esc(t.grupo||'—')}</td>
                                     <td><span class="badge ${t.activa?'activa':'inactivo'}">${t.activa?'Activa':'Inactiva'}</span></td>
                                     <td class="td-mono">${esc(fmtDate(t.asignada_en))}</td>
                                     <td>
@@ -2543,18 +2536,10 @@ María,García,,20230002,1,A,"></textarea>
                                     </td>
                                 </tr>`;
                     },
-                    pagination: tarjSoloSinAsignar ? null : { total: tData.total, page, perPage: TARJ_POR_PAGINA,
-                        onPage: cargarTarjetas },
+                    pagination: { total: tData.total, page, perPage: TARJ_POR_PAGINA, onPage: cargarTarjetas },
                     paginationElId: 'tarj-pagination'
                 });
-                if (tarjSoloSinAsignar) document.getElementById('tarj-pagination').innerHTML = '';
-                if (eData.success) {
-                    const sel = document.getElementById('tarj-est');
-                    sel.innerHTML = '<option value="">Sin asignar</option>' +
-                        eData.estudiantes.map(e =>
-                            `<option value="${e.id}">${esc(e.nombre)} ${esc(e.apellido_paterno||'')} — ${esc(e.matricula)}</option>`
-                        ).join('');
-                }
+
             } catch {
                 renderTable({ bodyId: 'tbody-tarj', columns: Array(9), data: [], emptyMsg: 'Error de red' });
             }
@@ -2680,10 +2665,14 @@ María,García,,20230002,1,A,"></textarea>
 
         async function editarTarj(id) {
             try {
-                const d = await apiFetch('/api/tarjetas');
-                const t = d.tarjetas.find(x => x.id === id);
-                if (!t) return;
+                const d = await apiFetch(`/api/tarjetas/${id}`);
+                if (!d.success) return toastErr(d.error || 'Error al cargar la tarjeta');
+                const t = d.tarjeta;
                 await abrirModalTarj();
+                if (t.id_estudiante && !document.querySelector(`#tarj-est option[value="${t.id_estudiante}"]`)) {
+                    cerrarModalTarj();
+                    return toastErr('No se pudo cargar la lista de estudiantes; intenta de nuevo');
+                }
                 document.getElementById('tarj-id').value = t.id;
                 document.getElementById('tarj-uid').value = t.uid;
                 document.getElementById('tarj-est').value = String(t.id_estudiante || '');
@@ -2802,7 +2791,9 @@ María,García,,20230002,1,A,"></textarea>
         }
 
         function exportarRegistros() {
-            const fecha = document.getElementById('f-fecha-reg').value || new Date().toISOString().slice(0, 10);
+            const _n = new Date();
+            const fecha = document.getElementById('f-fecha-reg').value ||
+                `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, '0')}-${String(_n.getDate()).padStart(2, '0')}`;
             window.location.href = `/api/export/registros?fecha=${fecha}`;
         }
 
@@ -3532,10 +3523,9 @@ María,García,,20230002,1,A,"></textarea>
                     `<tr><td>${i+1}</td><td>${esc(e.nombre)}</td><td>${esc(e.semestre||'—')}</td><td>${esc(e.visitas)}</td></tr>`
                 ).join('');
 
-                const hoy = new Date().toISOString().slice(0, 10);
-                const regHoy = await apiFetch(`/api/registros?fecha=${hoy}&estado=aceptado&limit=5000`);
-                const presentesSet = new Set((regHoy.success ? regHoy.registros : []).map(r => r.matricula));
-                const ausentes = estudiantes.filter(e => e.estado === 'activo' && !presentesSet.has(e.matricula));
+                const hoyD = await apiFetch('/api/asistencia/hoy');
+                const presentes = new Set(hoyD.success ? hoyD.presentes : []);
+                const ausentes = estudiantes.filter(e => e.estado === 'activo' && !presentes.has(e.id));
                 const sinRfidCount = ausentes.filter(e => !e.tarjetas_asignadas).length;
                 document.getElementById('absent-list').innerHTML = ausentes.length ?
                     (sinRfidCount ?
