@@ -201,12 +201,16 @@ python common/init_db.py
 # WAL mode activado — lecturas concurrentes sin bloqueo.
 ```
 
-### 5.5 Crear directorio de archivos de señal
+### 5.5 Directorios de señal (tmpfiles)
+
+`/run` vive en RAM, así que los directorios se crean en cada arranque con tmpfiles
+(ver sección 16). No los crees a mano.
 
 ```bash
-sudo mkdir -p /run/rfid-shared
-sudo chown admin:admin /run/rfid-shared
-sudo chmod 750 /run/rfid-shared
+sudo groupadd -f rfid-shared
+sudo usermod -aG rfid-shared rfid-svc
+sudo install -o root -g root -m 644 deploy/system/rfid-shared.conf deploy/system/rfid-reloj.conf /etc/tmpfiles.d/
+sudo systemd-tmpfiles --create && sync
 ```
 
 ### 5.6 Instalar y habilitar los servicios systemd
@@ -247,7 +251,8 @@ Las marcadas con ★ son **obligatorias**; el servicio no arranca sin ellas.
 | `ALLOW_HTTP_MIGRATIONS` | — | `false` | Activa el endpoint `/api/migrate` (solo para migraciones manuales) |
 | `RFID_SSH_HOST` | — | `127.0.0.1` | Host para modo SSH remoto en `rfid_software_admin.py` |
 | `RFID_SSH_USER` | — | `admin` | Usuario SSH |
-| `RFID_SSH_PASSWORD` | — | — | Contraseña SSH (obligatoria si `RFID_USE_SSH` ≠ auto/never) |
+| `RFID_SSH_KEY_PATH` | — | — | Llave privada SSH (obligatoria si se usa SSH remoto; ya no hay contraseña) |
+| `RFID_SSH_KNOWN_HOSTS` | — | `~/.ssh/known_hosts` | Archivo con la huella del host, verificada a mano |
 | `RFID_SSH_PORT` | — | `22` | Puerto SSH |
 | `RFID_USE_SSH` | — | `auto` | `auto`, `always`, `never` |
 
@@ -486,7 +491,8 @@ Formato de respuesta: `{"success": true|false, ...}` salvo exportaciones y `/`.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/tarjetas` | Lista paginada (`limit`, `offset`) |
+| GET | `/api/tarjetas` | Lista paginada. Parámetros: `limit` (máx. 200), `offset`, `semestre`, `grupo`, `sin_asignar=1`. Orden `asignada_en DESC, id DESC` |
+| GET | `/api/tarjetas/<id>` | Una tarjeta (404 si no existe) |
 | POST | `/api/tarjetas` | Crear/asignar tarjeta |
 | PUT | `/api/tarjetas/<id>` | Actualizar |
 | DELETE | `/api/tarjetas/<id>` | Eliminar |
@@ -779,4 +785,91 @@ La Pi no tiene RTC. Se usa `fake-hwclock` (guarda la hora cada hora y al apagar)
 2. Hora incorrecta tras un apagón sin internet: fijarla desde el panel.
 3. Restaurar la base: desde el panel (endpoint `/api/software/database/restore`), eligiendo un respaldo de `data/backups/`. Crea un respaldo de seguridad previo. Los respaldos se generan a diario a las 19:00.
 4. Verificar: `systemctl is-active rfid-reader rfid-crud rfid-dashboard nginx`.
+
+## 16. Directorios de ejecución (tmpfiles)
+
+| Archivo en `deploy/system/` | Contenido |
+|---|---|
+| `rfid-shared.conf` | `d /run/rfid-shared 2770 rfid-svc rfid-shared -` |
+| `rfid-reloj.conf`  | `d /run/rfid-reloj 0750 root rfid-shared -` |
+
+Comprobación (un `.conf` vacío falla en silencio y el directorio no se crea):
+
+```bash
+for f in /etc/tmpfiles.d/rfid-shared.conf /etc/tmpfiles.d/rfid-reloj.conf; do
+  test -s "$f" || echo "ERROR: $f vacío"
+done
+ls -ld /run/rfid-shared /run/rfid-reloj
+```
+
+Síntoma si falta `/run/rfid-shared`: el lector registra `Permission denied ... status file`
+y el escaneo masivo responde "No se pudo crear señal admin".
+
+## 17. Respaldo fuera de la Pi
+
+Cada día a las 19:30 (±5 min), `rfid-offsite.timer` ejecuta `rfid-offsite-backup.sh` como root:
+crea un snapshot con `sqlite3 .backup`, verifica `PRAGMA integrity_check` y lo envía por `scp`
+a una PC. Si hay una USB montada en `USB_DIR`, también copia ahí; si no, la omite.
+Si la PC no está disponible, el servicio termina con error (`systemctl status rfid-offsite`).
+
+### Configuración
+1. Llave dedicada, sin passphrase, solo para este servicio:
+   ```bash
+   sudo ssh-keygen -t ed25519 -N "" -C "rfid-offsite" -f /root/.ssh/rfid_offsite
+   sudo cat /root/.ssh/rfid_offsite.pub
+   ```
+2. Autoriza esa línea en la PC destino. En Windows, si el usuario es administrador, va en
+   `C:\ProgramData\ssh\administrators_authorized_keys` (permisos solo para Administrators y SYSTEM);
+   si no, en `C:\Users\<usuario>\.ssh\authorized_keys`.
+3. Registra la huella del host y compárala con la de la PC antes de continuar:
+   ```bash
+   sudo ssh-keyscan -t ed25519 <IP_DESTINO> | sudo tee -a /root/.ssh/known_hosts
+   sudo ssh-keygen -lf /root/.ssh/known_hosts
+   ```
+   En Windows: `ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub`.
+4. Prueba: `sudo ssh -i /root/.ssh/rfid_offsite -o BatchMode=yes <usuario>@<IP_DESTINO> "echo conectado"`
+5. `/etc/rfid-offsite.conf` (modo 600; hay un `deploy/system/rfid-offsite.conf.example`):
+   ```
+   REMOTE=<usuario>@<IP_DESTINO>
+   REMOTE_DIR=rfid-backups
+   KEY=/root/.ssh/rfid_offsite
+   USB_DIR=/mnt/rfid-usb
+   ```
+6. Instala `deploy/system/rfid-offsite-backup.sh` en `/usr/local/sbin/` (modo 750) y las
+   unidades `rfid-offsite.service` y `.timer` de `deploy/systemd/` en `/etc/systemd/system/`:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now rfid-offsite.timer
+   ```
+
+### Verificación
+```bash
+sudo systemctl start rfid-offsite.service
+journalctl -u rfid-offsite -n 20 --no-pager      # debe decir: OK windows
+systemctl list-timers rfid-offsite.timer
+```
+Prueba de restauración: descarga el snapshot y compara conteos con la base viva.
+```bash
+sudo scp -i /root/.ssh/rfid_offsite <usuario>@<IP_DESTINO>:rfid-backups/<archivo>.db /tmp/
+sudo sqlite3 /tmp/<archivo>.db "PRAGMA integrity_check; select count(*) from estudiantes;"
+sudo rm -f /tmp/<archivo>.db
+```
+
+### Mantenimiento
+- La PC destino debe estar encendida y alcanzable (p. ej. por Tailscale) a la hora de la copia.
+- Los snapshots no se borran solos en la PC; elimina los antiguos de vez en cuando.
+- Para revocar el acceso, borra la línea de la llave en la PC destino.
+
+## 18. Cortes de energía
+
+La Pi no tiene RTC y un apagado brusco puede dejar archivos vacíos (se vieron `.conf` de
+tmpfiles y un objeto de `.git` en 0 bytes). Tras cambiar configuración en `/etc`, ejecuta `sync`;
+sube los commits con `git push` de inmediato; y no dependas solo de `data/backups/`
+(ver sección 17). Recuperar un `.git` dañado:
+
+```bash
+find .git/objects -type f -size 0 -delete
+git fetch origin && git reset --soft origin/main
+git fsck --full
+```
 
