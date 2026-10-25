@@ -4,7 +4,7 @@
 CRUD Service — Puerto 5001
 Sistema de Asistencia RFID — ITSOEH / ITIC's
 """
-import sqlite3, os, csv, io, traceback, logging, threading, time, json, sys, ipaddress
+import sqlite3, os, csv, io, logging, threading, time, sys, ipaddress
 import subprocess, shutil, hmac, fcntl
 from datetime import datetime, timedelta
 from functools import wraps
@@ -15,9 +15,6 @@ from PIL import Image
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from limits import parse as _parse_rate_limit
-from limits.storage import MemoryStorage
-from limits.strategies import FixedWindowRateLimiter
 
 # Carga .env (solo desarrollo)
 try:
@@ -1032,7 +1029,6 @@ def software_database_restore():
         return jsonify({'success': False, 'error': 'Respaldo no encontrado'}), 404
     # Nombre unico para el respaldo de seguridad: nunca pisa un backup existente
     # (si coincidiera con el archivo a restaurar, se perderia el origen).
-    from datetime import timedelta
     momento = datetime.now()
     while True:
         pre_file = f'rfid_backup_{momento.strftime("%Y%m%d_%H%M%S")}.db'
