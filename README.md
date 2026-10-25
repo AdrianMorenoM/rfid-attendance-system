@@ -48,6 +48,10 @@
 14. [Glosario](#14-glosario)
 
 ---
+15. [Seguridad y operación](#15-seguridad-y-operación)
+16. [Directorios de ejecución (tmpfiles)](#16-directorios-de-ejecución-tmpfiles)
+17. [Respaldo fuera de la Pi](#17-respaldo-fuera-de-la-pi)
+18. [Cortes de energía](#18-cortes-de-energía)
 
 ## 1. Descripción general
 
@@ -583,9 +587,9 @@ Formato de respuesta: `{"success": true|false, ...}` salvo exportaciones y `/`.
 
 ### 10.2 Recomendaciones pendientes (priorizadas)
 
-2. **[Alta]** Cambiar `ADMIN_PASSWORD` por una cadena aleatoria de ≥16 caracteres.
-3. **[Media]** Activar `ALLOWED_SUBNET` con el rango de la red institucional.
-4. **[Baja]** Añadir confirmación explícita a `/api/hardware/network/restart`.
+1. **[Alta]** Cambiar `ADMIN_PASSWORD` por una cadena aleatoria de ≥16 caracteres.
+2. **[Media]** Activar `ALLOWED_SUBNET` con el rango de la red institucional.
+3. **[Baja]** Añadir confirmación explícita a `/api/hardware/network/restart`.
 
 ---
 
@@ -754,7 +758,7 @@ La Pi no tiene RTC. Se usa `fake-hwclock` (guarda la hora cada hora y al apagar)
 ### 15.4 Recuperación
 1. Servicios caídos: `sudo systemctl restart rfid-reader rfid-crud rfid-dashboard`.
 2. Hora incorrecta tras un apagón sin internet: fijarla desde el panel.
-3. Restaurar la base: desde el panel (endpoint `/api/software/database/restore`), eligiendo un respaldo de `data/backups/`. Crea un respaldo de seguridad previo. Los respaldos se generan a diario a las 19:00.
+3. Restaurar la base: desde el panel (endpoint `/api/software/database/restore`), eligiendo un respaldo de `data/backups/`. Crea un respaldo de seguridad previo. Los respaldos se generan a diario a las 19:00. Además, cada día a las 19:30 se envía una copia fuera de la Pi (sección 17).
 4. Verificar: `systemctl is-active rfid-reader rfid-crud rfid-dashboard nginx`.
 
 
