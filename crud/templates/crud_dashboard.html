@@ -1563,7 +1563,6 @@ María,García,,20230002,1,A,"></textarea>
         const AppState = {
             view: { estudiantes: 'table' },
             filters: { semestre: '', grupo: '' },
-            presentesHoy: new Set(),
             perfilAbiertoId: null,
             scan: { lastUid: null, lastTimestamp: null },
             cache: new Map(),
@@ -1898,17 +1897,10 @@ María,García,,20230002,1,A,"></textarea>
         }
 
         // ---------- Estudiantes ----------
-        async function cargarPresentesHoy() {
-            try {
-                const d = await apiFetch('/api/asistencia/hoy');
-                if (d.success) AppState.presentesHoy = new Set(d.presentes);
-            } catch {}
-        }
 
         async function renderStudentsGrouped(containerId, groupBy = 'semestre', filters = {}) {
             const view = document.getElementById(containerId);
             view.innerHTML = '<div class="empty"><div class="empty-txt">Cargando…</div></div>';
-            await cargarPresentesHoy();
             if (filters.semestre || filters.buscar) {
                 return renderFlatStudentList(containerId, filters);
             }
