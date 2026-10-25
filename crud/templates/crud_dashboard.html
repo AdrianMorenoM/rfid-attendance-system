@@ -315,6 +315,9 @@
         .btn-success:hover:not(:disabled) { background: var(--green-25); }
         .btn-teal { background: var(--itsoeh-12); color: var(--itsoeh); border: 1px solid var(--itsoeh-30); }
         .btn-teal:hover:not(:disabled) { background: var(--itsoeh-30); }
+        .btn-warning { background: var(--amber-12); color: var(--amber); border: 1px solid var(--amber-25); }
+        .btn-warning:hover:not(:disabled) { background: var(--amber-25); }
+        .two-col-grid { display: grid; grid-template-columns: 1fr 1fr; }
         .btn-sm { padding: 4px 8px; font-size: 9px; }
         .btn-loading { position: relative; pointer-events: none; }
         .btn-loading::after {
@@ -626,6 +629,7 @@
             .stat-val { font-size: 22px; }
         }
         @media (max-width: 768px) {
+            .two-col-grid { grid-template-columns: 1fr; }
             input, select, textarea, .h-search, .config-bar select, .config-bar input, .f-select, .f-input, .form-input, .form-select { font-size: 16px !important; }
             header { grid-template-columns: auto 1fr auto; height: auto; min-height: 52px; }
             .h-title, .h-badge { display: none; }
@@ -2570,14 +2574,15 @@ María,García,,20230002,1,A,"></textarea>
         let _countdownId = null;
 
         async function iniciarEscucha() {
-            cancelarEscucha();
+            clearInterval(_listenPoll); _listenPoll = null;
+            clearInterval(_countdownId); _countdownId = null;
             try {
-                const r = await apiFetch('/api/rfid/listen/start', {
+                const r = await apiFetch('/api/rfid/admin-scan/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ timeout: LISTEN_TIMEOUT })
                 });
-                if (!r.success) return toastErr('No se pudo activar escucha RFID');
+                if (!r.success) return toastErr(r.error || 'No se pudo activar escucha RFID');
             } catch { return toastErr('Error al activar escucha'); }
             document.getElementById('btn-scan-uid').disabled = true;
             document.getElementById('listen-badge').style.display = 'inline-flex';
@@ -2592,18 +2597,20 @@ María,García,,20230002,1,A,"></textarea>
             }, 1000);
             _listenPoll = setInterval(async () => {
                 try {
-                    const s = await apiFetch('/api/rfid/listen/status');
-                    if (s.uid) {
-                        document.getElementById('tarj-uid').value = s.uid;
+                    const s = await apiFetch('/api/rfid/admin-scan/status');
+                    const uids = (s && s.uids) || [];
+                    if (uids.length) {
+                        const uid = uids[uids.length - 1].uid;
+                        document.getElementById('tarj-uid').value = uid;
                         document.getElementById('tarj-uid').classList.add('uid-flash-ok');
-                        setTimeout(() => document.getElementById('tarj-uid').classList.remove('uid-flash-ok'),
-                            700);
-                        toastOk(`UID capturado: ${s.uid}`);
+                        setTimeout(() => document.getElementById('tarj-uid').classList.remove('uid-flash-ok'), 700);
+                        toastOk(`UID capturado: ${uid}`);
+                        cancelarEscucha();
+                    } else if (s && s.active === false) {
                         cancelarEscucha();
                     }
-                    if (!s.active && !s.uid) cancelarEscucha();
                 } catch {}
-            }, 1000);
+            }, 800);
             toastInfo('Acerca una tarjeta al lector RFID…');
         }
 
@@ -2618,7 +2625,7 @@ María,García,,20230002,1,A,"></textarea>
             if (badge) badge.style.display = 'none';
             if (btn) btn.disabled = false;
             if (inp) inp.placeholder = 'p.ej. 369301586877';
-            apiFetch('/api/rfid/listen/stop', { method: 'POST' }).catch(() => {});
+            apiFetch('/api/rfid/admin-scan/stop', { method: 'POST' }).catch(() => {});
         }
 
         // ---------- Modal tarjeta ----------
