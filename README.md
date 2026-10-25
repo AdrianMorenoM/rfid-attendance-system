@@ -46,13 +46,13 @@
 12. [Mantenimiento y operación](#12-mantenimiento-y-operación)
 13. [Troubleshooting](#13-troubleshooting)
 14. [Glosario](#14-glosario)
-
+15. [Seguridad y operación](#15-seguridad-y-operación)
 16. [Directorios de ejecución (tmpfiles)](#16-directorios-de-ejecución-tmpfiles)
 17. [Respaldo fuera de la Pi](#17-respaldo-fuera-de-la-pi)
 18. [Cortes de energía](#18-cortes-de-energía)
 
-
 ---
+
 ## 1. Descripción general
 
 Sistema completo de control de asistencia mediante tarjetas RFID, desarrollado sobre **Raspberry Pi 4 + lector RC522**, que automatiza el registro de entradas sin intervención manual. Cada estudiante acerca su tarjeta al lector; el sistema la identifica, decide si el acceso es válido y guarda el evento en una base de datos local SQLite en modo WAL.
