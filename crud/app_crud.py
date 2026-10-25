@@ -1520,16 +1520,17 @@ def ultimo_scan():
 def get_estudiantes():
     conn = get_db()
     try:
-        q = ("SELECT e.*, COUNT(DISTINCT t.id) AS tarjetas_asignadas, COUNT(DISTINCT ra.id) AS total_registros "
-             "FROM estudiantes e LEFT JOIN tarjetas t ON e.id=t.id_estudiante "
-             "LEFT JOIN registros_asistencia ra ON e.id=ra.id_estudiante WHERE e.carrera=?")
+        q = ("SELECT e.*, "
+             "(SELECT COUNT(*) FROM tarjetas t WHERE t.id_estudiante=e.id) AS tarjetas_asignadas, "
+             "(SELECT COUNT(*) FROM registros_asistencia ra WHERE ra.id_estudiante=e.id) AS total_registros "
+             "FROM estudiantes e WHERE e.carrera=?")
         p = [CARRERA]
         if (sem := request.args.get('semestre')): q += " AND e.semestre=?"; p.append(sem)
         if (grp := request.args.get('grupo', '').strip().upper()): q += " AND UPPER(COALESCE(e.grupo,''))=?"; p.append(grp)
         if (bus := request.args.get('buscar', '').strip()):
             q += " AND (e.nombre LIKE ? OR e.apellido_paterno LIKE ? OR e.matricula LIKE ? OR EXISTS (SELECT 1 FROM tarjetas t2 WHERE t2.id_estudiante=e.id AND t2.uid LIKE ?))"
             p += [f'%{bus}%'] * 4
-        q += " GROUP BY e.id ORDER BY CAST(e.semestre AS INTEGER), e.apellido_paterno, e.nombre"
+        q += " ORDER BY CAST(e.semestre AS INTEGER), e.apellido_paterno, e.nombre"
         rows = [dict(r) for r in conn.execute(q, p).fetchall()]
     finally:
         conn.close()
