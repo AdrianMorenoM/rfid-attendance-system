@@ -1747,7 +1747,7 @@ def perfil_estudiante(est_id):
         tarjetas  = [dict(r) for r in conn.execute("SELECT * FROM tarjetas WHERE id_estudiante=?", (est_id,)).fetchall()]
         registros = [dict(r) for r in conn.execute(f"SELECT fecha_dia, {s['col']} AS tipo, timestamp, uid FROM registros_asistencia WHERE id_estudiante=? ORDER BY timestamp DESC LIMIT 90", (est_id,)).fetchall()]
         total_acc = conn.execute(f"SELECT COUNT(*) AS t FROM registros_asistencia WHERE id_estudiante=? AND {s['col']} IN ('aceptado','entrada')", (est_id,)).fetchone()['t']
-        ultimo    = conn.execute(f"SELECT timestamp FROM registros_asistencia WHERE id_estudiante=? ORDER BY timestamp DESC LIMIT 1", (est_id,)).fetchone()
+        ultimo    = conn.execute("SELECT timestamp FROM registros_asistencia WHERE id_estudiante=? ORDER BY timestamp DESC LIMIT 1", (est_id,)).fetchone()
     finally:
         conn.close()
     return jsonify({'success': True, 'estudiante': dict(est), 'tarjetas': tarjetas, 'registros': registros,
