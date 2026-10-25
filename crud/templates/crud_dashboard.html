@@ -1041,7 +1041,6 @@ María,García,,20230002,1,A,"></textarea>
                 <div style="display:flex;flex-direction:column;gap:8px;min-width:320px">
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
                         <button class="btn btn-teal btn-sm" id="btn-escucha-rfid" onclick="abrirModalAdminScan()">Leer con lector RFID</button>
-                        <button class="btn btn-success btn-sm" onclick="guardarUIDCapturado()" id="btn-guardar-uid-capturado" style="display:none">Guardar UID</button>
                     </div>
                     <div style="display:flex;gap:8px;align-items:center">
                         <input class="f-input td-mono" id="uid-manual-input" placeholder="Ingresa UID…" onkeydown="if(event.key==='Enter')guardarUIDManual()" style="flex:1;font-size:12px">
@@ -1773,9 +1772,6 @@ María,García,,20230002,1,A,"></textarea>
         }
 
         // ---------- Tabs ----------
-        function irATab(nombre) {
-            document.querySelector(`.tab[data-tab="${nombre}"]`)?.click();
-        }
 
         let tarjSoloSinAsignar = false;
 
@@ -3045,7 +3041,6 @@ María,García,,20230002,1,A,"></textarea>
             } catch (e) { toastErr('Error: ' + e.message); }
         }
 
-        function guardarUIDCapturado() {}
 
         // ---------- Tarjetas sin asignar ----------
         async function cargarTarjetasSinAsignar() {
@@ -3580,11 +3575,6 @@ María,García,,20230002,1,A,"></textarea>
         setInterval(cargarStats, STATS_INTERVAL);
         setInterval(cargarHardware, HW_INTERVAL);
 
-        document.getElementById('tabs').addEventListener('click', e => {
-            const tab = e.target.closest('.tab')?.dataset.tab;
-            if (tab === 'rfid') startScanPoll();
-            else stopScanPoll();
-        });
     </script>
 </body>
 </html>
