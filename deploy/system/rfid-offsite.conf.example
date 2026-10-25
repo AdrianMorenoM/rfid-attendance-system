@@ -1,0 +1,4 @@
+REMOTE=usuario@IP_DESTINO
+REMOTE_DIR=rfid-backups
+KEY=/root/.ssh/rfid_offsite
+USB_DIR=/mnt/rfid-usb

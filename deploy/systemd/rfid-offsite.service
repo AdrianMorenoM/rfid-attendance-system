@@ -1,0 +1,8 @@
+[Unit]
+Description=Copia de rfid.db a la PC remota
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rfid-offsite-backup.sh

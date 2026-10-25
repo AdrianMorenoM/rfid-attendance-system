@@ -1,0 +1,10 @@
+[Unit]
+Description=Copia diaria de rfid.db fuera de la Pi
+
+[Timer]
+OnCalendar=*-*-* 19:30
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
