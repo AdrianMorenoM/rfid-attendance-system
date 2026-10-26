@@ -255,9 +255,13 @@ def rc522_vivo(reader) -> bool:
         if v in (0x00, 0xFF):              # bus desconectado
             return False
         tx = reader.Read_MFRC522(TXCONTROL)
-        if (tx & 0x03) != 0x03:            # responde por SPI pero sin antena: no lee tarjetas
-            log.warning("RC522: antena apagada (TxControlReg=0x%02X), reencendiendo", tx)
-            reader.AntennaOn()
+        if (tx & 0x03) != 0x03:            # antena apagada: el chip perdió su configuración
+            log.warning("RC522: antena apagada (TxControlReg=0x%02X), reinicializando chip", tx)
+            reader.MFRC522_Init()
+            tx = reader.Read_MFRC522(TXCONTROL)
+            if (tx & 0x03) != 0x03:
+                log.error("RC522: sigue sin antena tras reinicializar (0x%02X)", tx)
+                return False
         return True
     except Exception:
         return False
