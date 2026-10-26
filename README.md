@@ -854,3 +854,6 @@ git fetch origin && git reset --soft origin/main
 git fsck --full
 ```
 
+El journal es persistente (`deploy/system/journald-limite.conf`, instalado en
+`/etc/systemd/journald.conf.d/limite.conf`: `Storage=persistent`, `SystemMaxUse=50M`) para poder
+diagnosticar cortes con `journalctl -b -1`. Raspberry Pi OS lo trae volátil por defecto.
