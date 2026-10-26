@@ -1,0 +1,24 @@
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 22/tcp on wlan0            LIMIT IN    172.16.0.0/12             
+[ 2] 8443/tcp on wlan0          ALLOW IN    172.16.0.0/12             
+[ 3] 22/tcp on wlan0            LIMIT IN    10.0.0.0/8                
+[ 4] 8443/tcp on wlan0          ALLOW IN    10.0.0.0/8                
+[ 5] 22/tcp on wlan0            LIMIT IN    192.168.0.0/16            
+[ 6] 8443/tcp on wlan0          ALLOW IN    192.168.0.0/16            
+[ 7] 443/tcp                    ALLOW IN    172.16.0.0/12             
+[ 8] 443/tcp                    ALLOW IN    10.0.0.0/8                
+[ 9] 443/tcp                    ALLOW IN    192.168.0.0/16            
+[10] 443 on tailscale0          ALLOW IN    Anywhere                  
+[11] 8443 on tailscale0         ALLOW IN    Anywhere                  
+[12] 443/tcp                    DENY IN     Anywhere                  
+[13] 8443/tcp                   DENY IN     Anywhere                  
+[14] 22/tcp on tailscale0       ALLOW IN    Anywhere                  
+[15] 443 (v6) on tailscale0     ALLOW IN    Anywhere (v6)             
+[16] 8443 (v6) on tailscale0    ALLOW IN    Anywhere (v6)             
+[17] 443/tcp (v6)               DENY IN     Anywhere (v6)             
+[18] 8443/tcp (v6)              DENY IN     Anywhere (v6)             
+[19] 22/tcp (v6) on tailscale0  ALLOW IN    Anywhere (v6)             
+
