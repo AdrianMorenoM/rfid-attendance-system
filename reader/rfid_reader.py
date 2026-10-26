@@ -247,10 +247,18 @@ def _sd_notify(msg: str) -> None:
     finally:
         s.close()
 
+TXCONTROL = 0x14
+
 def rc522_vivo(reader) -> bool:
     try:
         v = reader.Read_MFRC522(0x37)      # VersionReg
-        return v not in (0x00, 0xFF)       # bus desconectado lee 0x00 o 0xFF
+        if v in (0x00, 0xFF):              # bus desconectado
+            return False
+        tx = reader.Read_MFRC522(TXCONTROL)
+        if (tx & 0x03) != 0x03:            # responde por SPI pero sin antena: no lee tarjetas
+            log.warning("RC522: antena apagada (TxControlReg=0x%02X), reencendiendo", tx)
+            reader.AntennaOn()
+        return True
     except Exception:
         return False
 
