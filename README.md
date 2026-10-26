@@ -835,13 +835,11 @@ sudo rm -f /tmp/<archivo>.db
 
 ### Mantenimiento
 - La PC destino debe estar encendida y alcanzable (p. ej. por Tailscale) a la hora de la copia.
-- Los snapshots no se borran solos en la PC; elimina los antiguos de vez en cuando.
+- Los snapshots no se borran solos en la PC; elimina los antiguos de vez en cuando (p. ej., los de más de 60 días).
 - Para revocar el acceso, borra la línea de la llave en la PC destino.
 - La llave en Windows lleva `restrict` (sin túneles, reenvío de agente ni sesión interactiva con pty),
   pero sigue pudiendo ejecutar comandos como el usuario destino. Para limitarla más, usa una cuenta
   estándar dedicada o `command=` con un script validador.
-- Los snapshots no se borran solos en la PC: elimina los antiguos de vez en cuando
-  (por ejemplo, los de más de 60 días).
 
 ## 18. Cortes de energía
 
